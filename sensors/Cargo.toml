@@ -1,0 +1,40 @@
+[package]
+name = "sensors"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7"
+heapless = "0.8"
+panic-rtt-target = "0.1" # For panic messages
+rtt-target = "0.5"        # For log messages
+#defmt = "0.3"
+#defmt-rtt = "0.4"
+embedded-hal = { version = "0.2.7", features = ["unproven"] }
+embedded-time = "0.12.1"
+log = "0.4"
+nb = "1.1"
+panic-halt = "0.2"
+panic-semihosting = "0.6.0"
+stm32f3xx-hal = { version = "0.10", features = ["stm32f334x8", "rt", "usb"] }
+stm32-usbd = "0.8.0"
+usb-device = "0.3.1"
+usbd-serial = "0.2.0"
+
+#cortex-m = { workspace = true }
+#cortex-m-rt = { workspace = true }
+#heapless = { workspace = true }
+#panic-rtt-target = { workspace = true } # For panic messages
+#rtt-target = { workspace = true }        # For log messages
+#embedded-hal = { workspace = true }
+#embedded-time = { workspace = true }
+#log = { workspace = true }
+#nb = { workspace = true }
+#panic-halt = { workspace = true }
+#panic-semihosting = { workspace = true }
+#stm32f3xx-hal = { workspace = true }
+#stm32-usbd = { workspace = true }
+#usb-device = { workspace = true }
+#usbd-serial = { workspace = true }
+

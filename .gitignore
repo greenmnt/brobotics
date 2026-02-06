@@ -1,0 +1,20 @@
+# Rust
+**/target/
+/working/
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor
+.vscode/
+.idea/
+
+# macOS
+*.DS_Store
+
+# Other
+.env
+**/keys/
+

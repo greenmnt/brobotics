@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -e
+
+set -euo pipefail
+
+# Start socat in background
+socat PTY,raw,echo=0,link=/tmp/imu_in PTY,raw,echo=0,link=/tmp/imu_out &
+SOCAT_PID=$!
+
+# Kill socat when runner exits
+trap "kill $SOCAT_PID" EXIT
+RUSTFLAGS="-C link-arg=-Tlink.x" cargo b -p sensors --release --target thumbv7em-none-eabihf 
+probe-rs run --chip STM32F334C8 target/thumbv7em-none-eabihf/release/sensors "$@" | tee /tmp/imu_in
