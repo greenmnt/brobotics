@@ -1,14 +1,17 @@
+use crate::SharedOrientation;
+use bevy::gltf::Gltf;
+use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct OrbitCamera {
-    radius: f32,
-    yaw: f32,
-    pitch: f32,
-    target: Vec3, // where the camera is looking at
+    pub radius: f32,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub target: Vec3, // where the camera is looking at
 }
 
-fn orbit_camera_keyboard(
+pub fn orbit_camera_keyboard(
     keys: Res<Input<KeyCode>>,
     mut query: Query<(&mut OrbitCamera, &mut Transform)>,
 ) {
@@ -48,11 +51,13 @@ fn orbit_camera_keyboard(
     }
 }
 
-
 #[derive(Component)]
-struct AngleText;
+pub struct AngleText;
 
-fn update_angle_text(imu: Res<SharedOrientation>, mut query: Query<&mut Text, With<AngleText>>) {
+pub fn update_angle_text(
+    imu: Res<SharedOrientation>,
+    mut query: Query<&mut Text, With<AngleText>>,
+) {
     let data = imu.0.lock().unwrap();
 
     let roll = data.roll.to_degrees();
@@ -69,25 +74,7 @@ fn update_angle_text(imu: Res<SharedOrientation>, mut query: Query<&mut Text, Wi
     }
 }
 
-
-// System to rotate the plane based on IMU gyro data
-fn update_plane_rotation(gyro: Res<SharedGyro>, mut query: Query<&mut Transform, With<Name>>) {
-    let data = gyro.0.lock().unwrap();
-    let gx = data.x.to_radians() / 100.0; // scale down for visualization
-    let gy = data.y.to_radians() / 100.0;
-    let gz = data.z.to_radians() / 100.0;
-
-    for mut transform in query.iter_mut() {
-        transform.rotation = Quat::from_euler(
-            EulerRot::XYZ,
-            gy, // map gy to x rotation
-            gz, // map gz to y rotation
-            gx, // map gx to z rotation
-        );
-    }
-}
-
-fn update_plane_orientation(
+pub fn update_plane_orientation(
     imu_data: Res<SharedOrientation>,
     mut query: Query<&mut Transform, With<Name>>,
 ) {
@@ -95,6 +82,31 @@ fn update_plane_orientation(
     for mut transform in query.iter_mut() {
         transform.rotation = Quat::from_euler(EulerRot::XYZ, data.roll, data.pitch, data.yaw);
         //transform.rotation = Quat::from_euler(EulerRot::XYZ, data.roll, data.pitch, 0.0);
+    }
+}
+
+pub fn orbit_camera_system(
+    time: Res<Time>,
+    mouse_input: Res<Input<MouseButton>>,
+    mut mouse_motion: EventReader<MouseMotion>,
+    mut query: Query<(&mut Transform, &mut OrbitCamera)>,
+) {
+    for (mut transform, mut orbit) in query.iter_mut() {
+        if mouse_input.pressed(MouseButton::Left) {
+            for motion in mouse_motion.iter() {
+                orbit.yaw -= motion.delta.x * 0.005;
+                orbit.pitch -= motion.delta.y * 0.005;
+                orbit.pitch = orbit.pitch.clamp(-1.5, 1.5);
+            }
+        }
+
+        // Update camera position
+        let x = orbit.radius * orbit.yaw.cos() * orbit.pitch.cos();
+        let y = orbit.radius * orbit.pitch.sin();
+        let z = orbit.radius * orbit.yaw.sin() * orbit.pitch.cos();
+
+        transform.translation = Vec3::new(x, y, z);
+        transform.look_at(Vec3::ZERO, Vec3::Y);
     }
 }
 

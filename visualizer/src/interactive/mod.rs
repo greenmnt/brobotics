@@ -1,4 +1,10 @@
+use bevy::gltf::Gltf;
+use bevy::input::mouse::MouseMotion;
+use bevy::prelude::*;
+
 pub mod components;
+pub use components::{orbit_camera_keyboard, orbit_camera_system, update_angle_text};
+use components::{AngleText, OrbitCamera};
 
 pub fn setup(
     mut commands: Commands,
@@ -78,30 +84,6 @@ pub fn setup(
     });
 }
 
-fn orbit_camera_system(
-    time: Res<Time>,
-    mouse_input: Res<Input<MouseButton>>,
-    mut mouse_motion: EventReader<MouseMotion>,
-    mut query: Query<(&mut Transform, &mut OrbitCamera)>,
-) {
-    for (mut transform, mut orbit) in query.iter_mut() {
-        if mouse_input.pressed(MouseButton::Left) {
-            for motion in mouse_motion.iter() {
-                orbit.yaw -= motion.delta.x * 0.005;
-                orbit.pitch -= motion.delta.y * 0.005;
-                orbit.pitch = orbit.pitch.clamp(-1.5, 1.5);
-            }
-        }
-
-        // Update camera position
-        let x = orbit.radius * orbit.yaw.cos() * orbit.pitch.cos();
-        let y = orbit.radius * orbit.pitch.sin();
-        let z = orbit.radius * orbit.yaw.sin() * orbit.pitch.cos();
-
-        transform.translation = Vec3::new(x, y, z);
-        transform.look_at(Vec3::ZERO, Vec3::Y);
-    }
-}
 
 // Draw X, Y, Z axes
 fn add_axes(

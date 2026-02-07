@@ -1,5 +1,6 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::io::{BufRead, BufReader};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RawImuData {
@@ -12,8 +13,14 @@ pub struct RawImuData {
     gz: f32,
 }
 
+impl RawImuData {
+    pub fn timestamp(&self) -> f32 {
+        self.timestamp
+    }
+}
+
 #[derive(Clone, Copy)]
-struct ScaledImuData {
+pub struct ScaledImuData {
     ax: f32,
     ay: f32,
     az: f32,
@@ -23,13 +30,13 @@ struct ScaledImuData {
 }
 
 #[derive(Clone, Copy, Default)]
-struct Orientation {
-    roll: f32,
-    pitch: f32,
-    yaw: f32,
+pub struct Orientation {
+    pub roll: f32,
+    pub pitch: f32,
+    pub yaw: f32,
 }
 
-enum TiltCalculationMethod {
+pub enum TiltCalculationMethod {
     //******* Accel only ********
     //  pitch = atan2(Ax, sqrt(Ay² + Az²))
     //  roll = atan2(Ay, sqrt(Ax² + Az²))
@@ -130,7 +137,7 @@ static IMU_LINE_RE: Lazy<Regex> = Lazy::new(|| {
         .unwrap()
 });
 
-pub fn parse_imu_line(line: &str) -> Option<RawImu> {
+pub fn parse_imu_line(line: &str) -> Option<RawImuData> {
     /*
     line is of the form "12:15:20.432: 15996,5528,3340,-233,-127,-110"
     */
@@ -149,7 +156,7 @@ pub fn parse_imu_line(line: &str) -> Option<RawImu> {
             ax, ay, az, gx, gy, gz
         );
         let timestamp = parse_hhmmss(timestamp);
-        return Some(RawImu {
+        return Some(RawImuData {
             timestamp,
             ax,
             ay,
@@ -179,15 +186,15 @@ fn parse_hhmmss(s: &str) -> f32 {
 
 pub fn clean_raw_readings(
     raw: RawImuData,
-    gyro_bias: Option<&GyroBias>,
-    accel_bias: Option<&AccelBias>,
+    gyro_bias: &Option<GyroBias>,
+    accel_bias: &Option<AccelBias>,
     gyro_sens: f32,
     accel_sens: f32,
-) -> ScaledImu {
+) -> ScaledImuData {
     /*
      scaled = (raw - bias) / sens
     */
-    let mut scaled = raw.into();
+    let mut scaled: ScaledImuData = raw.into();
     if let Some(gyro_bias) = gyro_bias.as_ref() {
         scaled.gx -= gyro_bias.x;
         scaled.gy -= gyro_bias.y;
@@ -220,71 +227,23 @@ impl From<RawImuData> for ScaledImuData {
     }
 }
 
-//fn apply_sensitivity(raw: RawImuData, accel_sens: f32, gyro_sens: f32) -> ScaledImu {
-//ScaledImu {
-//ax: raw.ax / accel_sens,
-//ay: raw.ay / accel_sens,
-//az: raw.az / accel_sens,
-//gx: (raw.gx / gyro_sens).to_radians(),
-//gy: (raw.gy / gyro_sens).to_radians(),
-//gz: (raw.gz / gyro_sens).to_radians(),
-//}
-//}
-
-//fn apply_calibration(
-//scaled: ScaledImuData,
-//bias_accel: &RawImuData,
-//bias_gyro: &RawImuData,
-//) -> ScaledImu {
-//ScaledImu {
-//ax: scaled.ax - bias_accel.ax,
-//ay: scaled.ay - bias_accel.ay,
-//az: scaled.az - bias_accel.az,
-//gx: scaled.gx - bias_gyro.gx,
-//gy: scaled.gy - bias_gyro.gy,
-//gz: scaled.gz - bias_gyro.gz,
-//}
-//}
-
-//fn apply_calibration(
-//scaled: ScaledImuData,
-//bias_accel: Option<&AccelBias>,
-//bias_gyro: Option<&GyroBias>,
-//) -> ScaledImu {
-//ScaledImu {
-//ax: scaled.ax - bias_accel.ax,
-//ay: scaled.ay - bias_accel.ay,
-//az: scaled.az - bias_accel.az,
-//gx: scaled.gx - bias_gyro.gx,
-//gy: scaled.gy - bias_gyro.gy,
-//gz: scaled.gz - bias_gyro.gz,
-//}
-//}
-
-fn integrate(filter: &mut ImuFilter, imu: ScaledImu, dt: f32) -> Orientation {
-    filter.update(
-        ImuData {
-            ax: imu.ax,
-            ay: imu.ay,
-            az: imu.az,
-            gx: imu.gx,
-            gy: imu.gy,
-            gz: imu.gz,
-        },
-        dt,
-    );
+fn integrate(filter: &mut ImuFilter, imu: ScaledImuData, dt: f32) -> Orientation {
+    filter.update(imu, dt);
     filter.orientation
 }
 
-pub fn collect_sample(reader: &BufReader, num_samples: usize) -> Vec<RawImuData> {
+pub fn collect_sample(
+    reader: &mut BufReader<std::fs::File>,
+    num_samples: usize,
+) -> Vec<RawImuData> {
     let mut sample = Vec::new();
     for line_result in reader.lines().take(num_samples) {
-        if let Err(e) = line {
+        if let Err(e) = line_result {
             eprintln!("Read error: {:?}", e);
             continue;
         }
-        let line: &str = line.unwrap();
-        if let Some(raw_imu) = parse_imu_line(line) {
+        let line = line_result.unwrap();
+        if let Some(raw_imu) = parse_imu_line(&line) {
             sample.push(raw_imu);
         }
     }
@@ -312,26 +271,6 @@ pub fn calculate_gyro_bias_from_sample(data_points: Vec<RawImuData>) -> GyroBias
     bias.z /= num_samples;
 
     bias
-}
-
-pub fn calculate_gyro_bias(imu: &SharedImu, num_samples: usize) -> GyroBias {
-    let mut sum = GyroBias::default();
-
-    for _ in 0..num_samples {
-        let data = imu.0.lock().unwrap(); // read current gyro values
-        sum.x += data.gx;
-        sum.y += data.gy;
-        sum.z += data.gz;
-
-        // small delay between samples to avoid reading too fast
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-
-    GyroBias {
-        x: sum.x / num_samples as f32,
-        y: sum.y / num_samples as f32,
-        z: sum.z / num_samples as f32,
-    }
 }
 
 pub struct AccelBias {}

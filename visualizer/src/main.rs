@@ -10,6 +10,10 @@ use std::time::{Duration, Instant};
 
 mod data_handler;
 mod sensors;
+mod interactive;
+
+use data_handler::*;
+use interactive::{orbit_camera_system, orbit_camera_keyboard, setup, update_angle_text};
 
 /// Shared IMU resource for Bevy
 //#[derive(Clone, Resource)]
@@ -34,13 +38,13 @@ fn main() {
     let imu_clone = imu_data.clone();
     thread::spawn(move || {
         let file = File::open("/tmp/imu_out").expect("Failed to open IMU pipe");
-        let reader = BufReader::new(file);
+        let mut reader = BufReader::new(file);
 
         let accel_sens = sensors::mpu_6050::accel::ACCEL_TABLE[0].lsb_per_g;
         let gyro_sens = sensors::mpu_6050::gyro::FS_SEL_0;
 
         let num_samples = 500;
-        let bias_sample = collect_sample(&reader, num_samples);
+        let bias_sample = collect_sample(&mut reader, num_samples);
         let gyro_bias = Some(calculate_gyro_bias_from_sample(bias_sample));
         let accel_bias = None;
 
@@ -54,24 +58,25 @@ fn main() {
                 eprintln!("Read error: {:?}", e);
                 continue;
             }
-            let line: &str = line.unwrap();
-            let h = hash_line(line);
+            let line = line.unwrap();
+            let h = hash_line(&line);
             if h == last_hash {
                 eprintln!("Hashes are equal...skipping");
                 continue;
             }
             last_hash = h;
-            if let Some(raw_imu) = parse_imu_line(line) {
-                if prev_time >= raw_imu.timestamp {
+            if let Some(raw_imu) = parse_imu_line(&line) {
+                let ts = raw_imu.timestamp();
+                if prev_time >= ts {
                     eprintln!(
                         "prev_time >= current_timestamp {:?} {:?}",
-                        prev_time, raw_imu.timestamp
+                        prev_time, ts
                     );
                     continue;
                 }
 
-                let dt = raw_imu.timestamp - prev_time;
-                prev_time = raw_imu.timestamp;
+                let dt = ts - prev_time;
+                prev_time = ts;
 
                 let scaled =
                     clean_raw_readings(raw_imu, &gyro_bias, &accel_bias, gyro_sens, accel_sens);
@@ -79,7 +84,7 @@ fn main() {
                 filter.update(scaled, dt);
 
                 let mut shared = imu_clone.0.lock().unwrap();
-                *shared = filter.get_orientation();
+                *shared = *filter.get_orientation();
                 thread::sleep(Duration::from_millis(5));
             }
         }
@@ -91,9 +96,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, orbit_camera_system)
         .add_systems(Update, orbit_camera_keyboard)
-        .add_systems(Update, update_plane_orientation)
         .add_systems(Update, update_angle_text)
-        //.add_systems(Update, update_plane_rotation)
         .run();
 }
 

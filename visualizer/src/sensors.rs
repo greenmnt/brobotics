@@ -14,10 +14,10 @@ pub mod mpu_6050 {
         we can set the sensor to any of the sensitivities below
         */
 
-        pub const FS_SEL_0: f64 = 131.0;
-        pub const FS_SEL_1: f64 = 65.5;
-        pub const FS_SEL_2: f64 = 32.8;
-        pub const FS_SEL_3: f64 = 16.4;
+        pub const FS_SEL_0: f32 = 131.0;
+        pub const FS_SEL_1: f32 = 65.5;
+        pub const FS_SEL_2: f32 = 32.8;
+        pub const FS_SEL_3: f32 = 16.4;
 
         //Zero rate output
         pub const ABS_ZRO_PER_SECOND: f64 = 20.0;
@@ -38,9 +38,9 @@ pub mod mpu_6050 {
         */
 
         pub struct AccelConfig {
-            afs_sel: u32,
-            fs_g: f32,
-            lsb_per_g: f32,
+            pub afs_sel: u32,
+            pub fs_g: f32,
+            pub lsb_per_g: f32,
         }
 
         pub const ACCEL_TABLE: [AccelConfig; 4] = [
