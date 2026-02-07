@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 bevy = { version = "0.12", features = [] }
 bevy_gltf = "0.12"          # for loading GLB models
+once_cell = "1.21.3"
+regex = "1.12.3"
 tokio = { version = "1.30", features = ["full"] }  # for async file reading
 #bevy = { workspace = true } 
 #bevy_gltf = { workspace = true }

@@ -169,7 +169,7 @@ fn main() -> ! {
     let mut rcc = dp.RCC.constrain();
 
     let clocks = rcc.cfgr.sysclk(8.MHz()).freeze(&mut flash.acr);
-     //---- GPIO ----
+    //---- GPIO ----
     let mut gpiob = dp.GPIOB.split(&mut rcc.ahb);
 
     let scl = gpiob
@@ -179,7 +179,7 @@ fn main() -> ! {
     let sda = gpiob
         .pb7
         .into_af4_open_drain(&mut gpiob.moder, &mut gpiob.otyper, &mut gpiob.afrl);
-     //---- I2C ----
+    //---- I2C ----
     let mut i2c = I2c::new(
         dp.I2C1,
         (scl, sda),
@@ -187,26 +187,40 @@ fn main() -> ! {
         clocks,
         &mut rcc.apb1,
     );
-     //---- Wake up IMU ----
+    //---- Wake up IMU ----
     i2c.write(IMU_ADDR, &[PWR_MGMT_1, 0x00]).unwrap(); // --when we stop program midflight we can
-     //have stale state on the bus.
+                                                       //have stale state on the bus.
     loop {
         match i2c.write(IMU_ADDR, &[PWR_MGMT_1, 0x00]) {
-            Ok(_) => break,  // success
+            Ok(_) => break, // success
             Err(stm32f3xx_hal::i2c::Error::Arbitration) => {
                 rprintln!("Error: Arbitration");
 
-                cortex_m::asm::delay(10_000);  
+                cortex_m::asm::delay(10_000);
             }
-            Err(e) => panic!("I2C error: {:?}", e),  
+            Err(e) => panic!("I2C error: {:?}", e),
         }
     }
-     //---- WHO_AM_I test ----
+    //---- WHO_AM_I test ----
     let mut whoami = [0u8];
     i2c.write_read(IMU_ADDR, &[WHO_AM_I], &mut whoami).unwrap();
 
-     //whoami should usually be 0x68
+    //whoami should usually be 0x68
     let _whoami = whoami[0];
+
+    //Check which gyro sensitivities we are using
+    let mut buf = [0u8];
+    i2c.write_read(IMU_ADDR, &[0x1B], &mut buf).unwrap();
+    let gyro_config = buf[0];
+    let gyro_fs_sel = (gyro_config >> 3) & 0b11;
+    rprintln!("GYRO FS_SEL={}", gyro_fs_sel);
+    i2c.write_read(IMU_ADDR, &[0x1C], &mut buf).unwrap();
+    let accel_config = buf[0];
+    let accel_fs_sel = (accel_config >> 3) & 0b11;
+    rprintln!("ACCEL FS_SEL={}", accel_fs_sel);
+    assert!(gyro_fs_sel == 0);
+    assert!(accel_fs_sel == 0);
+
     let mut timer = Timer::new(dp.TIM2, clocks, &mut rcc.apb1);
     timer.start(50.milliseconds());
     loop {
@@ -225,7 +239,6 @@ fn main() -> ! {
         cortex_m::asm::nop();
     }
 }
-
 
 //#[entry]
 //fn main() -> ! {
