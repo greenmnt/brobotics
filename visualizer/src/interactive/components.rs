@@ -110,3 +110,19 @@ pub fn orbit_camera_system(
     }
 }
 
+//// System to rotate the plane based on IMU gyro data
+//pub fn update_plane_rotation(gyro: Res<SharedGyro>, mut query: Query<&mut Transform, With<Name>>) {
+//let data = gyro.0.lock().unwrap();
+//let gx = data.x.to_radians() / 100.0; // scale down for visualization
+//let gy = data.y.to_radians() / 100.0;
+//let gz = data.z.to_radians() / 100.0;
+
+//for mut transform in query.iter_mut() {
+//transform.rotation = Quat::from_euler(
+//EulerRot::XYZ,
+//gy, // map gy to x rotation
+//gz, // map gz to y rotation
+//gx, // map gx to z rotation
+//);
+//}
+//}

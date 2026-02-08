@@ -36,7 +36,8 @@ pub struct Orientation {
     pub yaw: f32,
 }
 
-pub enum TiltCalculationMethod {
+#[derive(Clone, Copy)]
+pub enum TiltFromAccelerationMethod {
     //******* Accel only ********
     //  pitch = atan2(Ax, sqrt(Ay² + Az²))
     //  roll = atan2(Ay, sqrt(Ax² + Az²))
@@ -46,17 +47,57 @@ pub enum TiltCalculationMethod {
     SingleAxis,
     // tilt = acos(Az / sqrt(Ax² + Ay² + Az²))
     TotalInclination,
+    // Tilt-compensated roll: roll = atan2(Ay*cos(pitch) - Az*sin(pitch), Az*cos(pitch) + Ay*sin(pitch))
+    TiltCompensatedRoll,
+}
+
+impl TiltFromAccelerationMethod {
+    fn pry(&self, data: &ScaledImuData) -> [f32; 3] {
+        match self {
+            Self::Fundamental => {
+                let pitch = (-data.ax).atan2((data.ay * data.ay + data.az * data.az).sqrt());
+                let roll = (data.ay).atan2(data.az);
+                [pitch, roll, 0.0]
+            }
+            Self::SingleAxis => {
+                let roll = data.ay.asin();
+                let pitch = (-data.ax).asin();
+                [pitch, roll, 0.0]
+            }
+            Self::TotalInclination => {
+                let norm = (data.ax * data.ax + data.ay * data.ay + data.az * data.az).sqrt();
+                let tilt_x = (data.ax / norm).acos();
+                let tilt_y = (data.ay / norm).acos();
+                let tilt_z = (data.az / norm).acos();
+                [tilt_x, tilt_y, tilt_z]
+            }
+            Self::TiltCompensatedRoll => {
+                let pitch = (-data.ax).atan2((data.ay * data.ay + data.az * data.az).sqrt());
+                let roll = (data.ay * pitch.cos() - data.ax * pitch.sin())
+                    .atan2(data.az * pitch.cos() + data.ax * pitch.sin());
+                [roll, pitch, 0.0]
+            }
+        }
+    }
+}
+
+pub enum TiltCalculationMethod {
+    TiltFromAccelerationMethod(TiltFromAccelerationMethod),
     //******* Gyro only ********
     // θ(t)=θ(t−1)+ω⋅dt
     GyroOnly,
     //******* Mixed ********
     // angle=α⋅(angle+ω⋅dt)+(1−α)⋅acc_angle
-    Complementary { alpha: f32 }, // alpha: gyro weight
-    KalmanFilter,                 //advanced TODO
+    Complementary {
+        alpha: f32,
+        acceleration_method: TiltFromAccelerationMethod,
+    }, // alpha: gyro weight
+    KalmanFilter, //advanced TODO
 }
 
 pub struct ImuFilter {
     pub orientation: Orientation,
+    pub gyro_orientation: Orientation,
     pub method: TiltCalculationMethod,
 }
 
@@ -64,57 +105,47 @@ impl ImuFilter {
     pub fn new(method: TiltCalculationMethod) -> Self {
         Self {
             orientation: Orientation::default(),
+            gyro_orientation: Orientation::default(),
             method,
         }
     }
 
     pub fn update(&mut self, data: ScaledImuData, dt: f32) {
         match self.method {
-            TiltCalculationMethod::Fundamental => {
-                let roll = (data.ay).atan2(data.az);
-                let pitch = (-data.ax).atan2((data.ay * data.ay + data.az * data.az).sqrt());
+            TiltCalculationMethod::TiltFromAccelerationMethod(method) => {
+                let [pitch, roll, yaw] = method.pry(&data);
                 self.orientation.roll = roll;
                 self.orientation.pitch = pitch;
-                // yaw cannot be estimated from accel alone
-            }
-            TiltCalculationMethod::SingleAxis => {
-                let roll = data.ay.asin();
-                let pitch = (-data.ax).asin();
-                self.orientation.roll = roll;
-                self.orientation.pitch = pitch;
-            }
-            TiltCalculationMethod::TotalInclination => {
-                let norm = (data.ax * data.ax + data.ay * data.ay + data.az * data.az).sqrt();
-                let tilt_x = (data.ax / norm).acos();
-                let tilt_y = (data.ay / norm).acos();
-                let tilt_z = (data.az / norm).acos();
-                self.orientation.roll = tilt_x;
-                self.orientation.pitch = tilt_y;
-                self.orientation.yaw = tilt_z; // approximate total tilt
+                self.orientation.yaw = yaw;
             }
             TiltCalculationMethod::GyroOnly => {
-                // integrate angular velocities
-                self.orientation.roll += data.gx * dt;
-                self.orientation.pitch += data.gy * dt;
-                self.orientation.yaw += data.gz * dt;
-            }
-            TiltCalculationMethod::Complementary { alpha } => {
-                // compute accel-based angles
-                let roll_acc = (data.ay).atan2(data.az);
-                let pitch_acc = (-data.ax).atan2((data.ay * data.ay + data.az * data.az).sqrt());
-
                 // integrate gyro
-                let roll_gyro = self.orientation.roll + data.gx * dt;
-                let pitch_gyro = self.orientation.pitch + data.gy * dt;
-                let yaw_gyro = self.orientation.yaw + data.gz * dt;
+                self._update_raw_gyro(&data, dt);
+            }
+            TiltCalculationMethod::Complementary {
+                alpha,
+                acceleration_method,
+            } => {
+                // integrate gyro
+                self._update_raw_gyro(&data, dt);
+
+                // compute accel-based angles
+                let [pitch_acc, roll_acc, _] = acceleration_method.pry(&data);
 
                 // complementary filter: combine
-                self.orientation.roll = alpha * roll_gyro + (1.0 - alpha) * roll_acc;
-                self.orientation.pitch = alpha * pitch_gyro + (1.0 - alpha) * pitch_acc;
-                self.orientation.yaw = yaw_gyro; // yaw cannot be corrected with accel
+                self.orientation.roll =
+                    alpha * self.gyro_orientation.roll + (1.0 - alpha) * roll_acc;
+                self.orientation.pitch =
+                    alpha * self.gyro_orientation.pitch + (1.0 - alpha) * pitch_acc;
+                self.orientation.yaw = self.gyro_orientation.yaw; // yaw cannot be corrected with accel
             }
             TiltCalculationMethod::KalmanFilter => todo!(),
         }
+    }
+    fn _update_raw_gyro(&mut self, data: &ScaledImuData, dt: f32) {
+        self.gyro_orientation.roll = self.gyro_orientation.roll + data.gx * dt;
+        self.gyro_orientation.pitch = self.gyro_orientation.pitch + data.gy * dt;
+        self.gyro_orientation.yaw = self.gyro_orientation.yaw + data.gz * dt;
     }
 
     pub fn get_orientation(&self) -> &Orientation {
@@ -150,11 +181,11 @@ pub fn parse_imu_line(line: &str) -> Option<RawImuData> {
         let gy: f32 = caps[6].parse().unwrap_or(0.0);
         let gz: f32 = caps[7].parse().unwrap_or(0.0);
 
-        println!("timestamp={}", timestamp);
-        println!(
-            "ax={}, ay={}, az={}, gx={}, gy={}, gz={}",
-            ax, ay, az, gx, gy, gz
-        );
+        //println!("timestamp={}", timestamp);
+        //println!(
+        //"ax={}, ay={}, az={}, gx={}, gy={}, gz={}",
+        //ax, ay, az, gx, gy, gz
+        //);
         let timestamp = parse_hhmmss(timestamp);
         return Some(RawImuData {
             timestamp,
@@ -211,6 +242,13 @@ pub fn clean_raw_readings(
     scaled.ay /= accel_sens;
     scaled.az /= accel_sens;
 
+    //now convert the gyro readings to radians (trig in rust is radian based)
+    let deg_to_rad = std::f32::consts::PI / 180.0;
+
+    scaled.gx *= deg_to_rad;
+    scaled.gy *= deg_to_rad;
+    scaled.gz *= deg_to_rad;
+
     scaled
 }
 
@@ -237,7 +275,10 @@ pub fn collect_sample(
     num_samples: usize,
 ) -> Vec<RawImuData> {
     let mut sample = Vec::new();
-    for line_result in reader.lines().take(num_samples) {
+    for (i, line_result) in reader.lines().take(num_samples).enumerate() {
+        if i % 100 == 0 {
+            tracing::info!(sample_num = i, total = num_samples);
+        }
         if let Err(e) = line_result {
             eprintln!("Read error: {:?}", e);
             continue;

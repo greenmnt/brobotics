@@ -222,7 +222,7 @@ fn main() -> ! {
     assert!(accel_fs_sel == 0);
 
     let mut timer = Timer::new(dp.TIM2, clocks, &mut rcc.apb1);
-    timer.start(50.milliseconds());
+    timer.start(100.milliseconds());
     loop {
         nb::block!(timer.wait()).unwrap();
         let mut buf = [0u8; 14];

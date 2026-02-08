@@ -3963,6 +3963,8 @@ dependencies = [
  "once_cell",
  "regex",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -3,7 +3,9 @@ use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
 
 pub mod components;
-pub use components::{orbit_camera_keyboard, orbit_camera_system, update_angle_text};
+pub use components::{
+    orbit_camera_keyboard, orbit_camera_system, update_angle_text, update_plane_orientation,
+};
 use components::{AngleText, OrbitCamera};
 
 pub fn setup(
@@ -83,7 +85,6 @@ pub fn setup(
         ..Default::default()
     });
 }
-
 
 // Draw X, Y, Z axes
 fn add_axes(
