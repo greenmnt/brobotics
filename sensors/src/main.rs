@@ -13,10 +13,11 @@ use gyro::*;
 use crate::uart_subscriber::*;
 use ahrs::{Ahrs, Madgwick};
 use core::fmt::Write;
+use cortex_m::peripheral::{DCB, DWT, SYST};
 use cortex_m_rt::entry;
 use nalgebra::Vector3;
 use panic_rtt_target as _;
-use rtt_target::{rprintln, rtt_init_print};
+use rtt_target::{rprint, rprintln, rtt_init, rtt_init_print, UpChannel};
 //use defmt::*;
 //use defmt_rtt as _; // global logger
 //use log::info;
@@ -238,9 +239,29 @@ fn main() -> ! {
 
 #[entry]
 fn main() -> ! {
+    //let mut channels = rtt_init! {
+    //up: {
+    //0: { size: 1024, mode: rtt_target::ChannelMode::NoBlockSkip, name: "Terminal" }
+    //}
+    //down: {}
+    //};
+    ////let mut channels = rtt_init!();
+    //let mut ch = &mut channels.up.0; // get up channel 0
+    //writeln!(ch, "test2").unwrap();
+    //writeln!(ch, "test3").unwrap();
+    //writeln!(ch, "test4").unwrap();
     rtt_init_print!();
-    rprintln!("");
     let dp = pac::Peripherals::take().unwrap();
+
+    //for clock cycles
+    let mut core_peripherals = cortex_m::Peripherals::take().unwrap();
+    let mut dwt = core_peripherals.DWT;
+    let mut dcb = core_peripherals.DCB;
+    dcb.enable_trace();
+    dwt.enable_cycle_counter();
+    //let mut dwt = dp.DWT;
+    //let mut core = dp.DCB;
+    //dwt.enable_cycle_counter(&mut core);
 
     let mut flash = dp.FLASH.constrain();
     let mut rcc = dp.RCC.constrain();
@@ -264,19 +285,15 @@ fn main() -> ! {
         clocks,
         &mut rcc.apb1,
     );
-    //---- Wake up IMU ----
-    i2c.write(IMU_ADDR, &[PWR_MGMT_1, 0x00]).unwrap(); // --when we stop program midflight we can
-                                                       //have stale state on the bus.
+
     loop {
         match i2c.write(IMU_ADDR, &[PWR_MGMT_1, 0x00]) {
             Ok(_) => break, // success
-            Err(stm32f3xx_hal::i2c::Error::Arbitration) => {
-                rprintln!("Error: Arbitration");
-
-                cortex_m::asm::delay(10_000);
+            Err(e) => {
+                rprintln!("I2C error: {:?}", e);
             }
-            Err(e) => panic!("I2C error: {:?}", e),
         }
+        cortex_m::asm::delay(10_000);
     }
     //---- WHO_AM_I test ----
     let mut whoami = [0u8];
@@ -290,22 +307,22 @@ fn main() -> ! {
     i2c.write_read(IMU_ADDR, &[0x1B], &mut buf).unwrap();
     let gyro_config = buf[0];
     let gyro_fs_sel = (gyro_config >> 3) & 0b11;
-    rprintln!("GYRO FS_SEL={}", gyro_fs_sel);
+    //rprintln!("GYRO FS_SEL={}", gyro_fs_sel);
     i2c.write_read(IMU_ADDR, &[0x1C], &mut buf).unwrap();
     let accel_config = buf[0];
     let accel_fs_sel = (accel_config >> 3) & 0b11;
-    rprintln!("ACCEL FS_SEL={}", accel_fs_sel);
+    //rprintln!("ACCEL FS_SEL={}", accel_fs_sel);
     assert!(gyro_fs_sel == 0);
     assert!(accel_fs_sel == 0);
 
-    let sample_rate_hz: u32 = 200;
-    let dt_ms: u32 = 1000 / sample_rate_hz;
+    let sample_rate_hz: f32 = 20.0;
+    let period_seconds: f32 = 1.0 / sample_rate_hz;
     let beta = 0.1;
 
-    let mut filter = Madgwick::new(sample_rate_hz as f32, beta);
+    let mut filter = Madgwick::new(period_seconds, beta);
 
     let mut timer = Timer::new(dp.TIM2, clocks, &mut rcc.apb1);
-    timer.start(dt_ms.milliseconds());
+    timer.start(((period_seconds * 1000.0) as u32).milliseconds());
     loop {
         nb::block!(timer.wait()).unwrap();
         let mut buf = [0u8; 14];
@@ -333,7 +350,24 @@ fn main() -> ! {
 
         filter.update_imu(&gyro, &accel);
         let q = filter.quat.quaternion();
-        rprintln!("q = [{:.3}, {:.3}, {:.3}, {:.3}]", q.w, q.i, q.j, q.k);
+        // cycles per microsecond
+        let cycles_per_us = clocks.sysclk().0 / 1_000_000;
+        let total_us = DWT::get_cycle_count() / cycles_per_us;
+        // integer division for seconds
+        let seconds = total_us / 1_000_000;
+        // remainder for microseconds
+        let micros = total_us % 1_000_000;
+        rprintln!(
+            "{}.{:06},{:.4},{:.4},{:.4},{:.4}",
+            seconds,
+            micros,
+            q.w,
+            q.i,
+            q.j,
+            q.k
+        );
+        //rprintln!("{:.4},{:.4},{:.4},{:.4}", q.w, q.i, q.j, q.k);
+        //rprintln!("{:?},{:?},{:?},{:.3}", q.w, q.i, q.j, q.k);
         //rprintln!("{},{},{},{},{},{}", ax, ay, az, gx, gy, gz);
         cortex_m::asm::nop();
     }

@@ -5,6 +5,7 @@ use bevy::prelude::*;
 pub mod components;
 pub use components::{
     orbit_camera_keyboard, orbit_camera_system, update_angle_text, update_plane_orientation,
+    update_plane_orientation_q,
 };
 use components::{AngleText, OrbitCamera};
 

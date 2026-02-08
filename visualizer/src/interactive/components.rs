@@ -1,4 +1,4 @@
-use crate::SharedOrientation;
+use crate::{SharedOrientation, SharedQuaternionData};
 use bevy::gltf::Gltf;
 use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
@@ -81,9 +81,31 @@ pub fn update_plane_orientation(
     let data = imu_data.0.lock().unwrap();
     for mut transform in query.iter_mut() {
         transform.rotation = Quat::from_euler(EulerRot::XYZ, data.pitch, data.roll, data.yaw);
-        //transform.rotation = Quat::from_euler(EulerRot::XYZ, data.roll, data.pitch, 0.0);
     }
 }
+
+pub fn update_plane_orientation_q(
+    imu_data: Res<SharedQuaternionData>,
+    mut query: Query<&mut Transform, With<Name>>,
+) {
+    let data = imu_data.0.lock().unwrap();
+    tracing::info!(data = ?data);
+    for mut transform in query.iter_mut() {
+        let sensor_quat = Quat::from_xyzw(data.q.x, data.q.y, data.q.z, data.q.w);
+        let fix_rotation = Quat::from_rotation_x(std::f32::consts::PI);
+        transform.rotation = fix_rotation * sensor_quat;
+    }
+}
+
+//pub fn update_plane_orientation(
+//imu_data: Res<SharedOrientation>,
+//mut query: Query<&mut Transform, With<Name>>,
+//) {
+//let data = imu_data.0.lock().unwrap();
+//for mut transform in query.iter_mut() {
+//transform.rotation = Quat::from_euler(EulerRot::XYZ, data.pitch, data.roll, data.yaw);
+//}
+//}
 
 pub fn orbit_camera_system(
     time: Res<Time>,

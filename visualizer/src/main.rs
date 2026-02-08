@@ -16,6 +16,7 @@ mod sensors;
 use data_handler::*;
 use interactive::{
     orbit_camera_keyboard, orbit_camera_system, setup, update_angle_text, update_plane_orientation,
+    update_plane_orientation_q,
 };
 
 /// Shared IMU resource for Bevy
@@ -35,7 +36,16 @@ impl SharedOrientation {
     }
 }
 
-fn startup_thread_system(imu_data: Res<SharedOrientation>) {
+#[derive(Clone, Resource)]
+struct SharedQuaternionData(Arc<Mutex<QuaternionData>>);
+
+impl SharedQuaternionData {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(QuaternionData::default())))
+    }
+}
+
+fn startup_thread_system_DEPRECATED(imu_data: Res<SharedOrientation>) {
     let imu_clone = imu_data.0.clone(); // clone the Arc
     thread::spawn(move || {
         let file = File::open("/tmp/imu_out").expect("Failed to open IMU pipe");
@@ -112,9 +122,51 @@ fn startup_thread_system(imu_data: Res<SharedOrientation>) {
     });
 }
 
+fn startup_thread_system(imu_data: Res<SharedQuaternionData>) {
+    let imu_clone = imu_data.0.clone(); // clone the Arc
+    thread::spawn(move || {
+        let file = File::open("/tmp/imu_out").expect("Failed to open IMU pipe");
+        let mut reader = BufReader::new(file);
+        //let mut filter = ImuFilter::new(TiltCalculationMethod::GyroOnly);
+        //let mut filter = ImuFilter::new(TiltCalculationMethod::Complementary {
+        //alpha: 0.98,
+        //acceleration_method: TiltFromAccelerationMethod::TiltCompensatedRoll,
+        //});
+        let mut prev_time: Option<f32> = None;
+        //let mut last_hash: u64 = 0;
+
+        info!("reading lines");
+        for line in reader.lines() {
+            if let Err(e) = line {
+                error!(error = ?e);
+                continue;
+            }
+            let line = line.unwrap();
+            if let Some(qline) = parse_quaternion_line(&line) {
+                info!(qline = ?qline, line= ?line);
+                //let ts = qline.timestamp;
+                //let dt = match prev_time {
+                //Some(prev) => ts - prev,
+                //None => {
+                //prev_time = Some(ts);
+                //continue; // skip first sample
+                //}
+                //};
+                //prev_time = Some(ts);
+                let mut shared = imu_clone.lock().unwrap();
+                *shared = qline;
+                thread::sleep(Duration::from_millis(5));
+            } else {
+                println!("Error parsing: {:?}", line);
+            }
+        }
+    });
+}
+
 fn main() {
     // Shared state between thread and Bevy app
-    let imu_data = SharedOrientation(Arc::new(Mutex::new(Orientation::default())));
+    //let imu_data = SharedOrientation(Arc::new(Mutex::new(Orientation::default())));
+    let imu_data = SharedQuaternionData(Arc::new(Mutex::new(QuaternionData::default())));
     let imu_clone = imu_data.clone();
     App::new()
         .add_plugins(DefaultPlugins)
@@ -124,8 +176,8 @@ fn main() {
         .add_systems(Startup, startup_thread_system)
         .add_systems(Update, orbit_camera_system)
         .add_systems(Update, orbit_camera_keyboard)
-        .add_systems(Update, update_angle_text)
-        .add_systems(Update, update_plane_orientation)
+        //.add_systems(Update, update_angle_text)
+        .add_systems(Update, update_plane_orientation_q)
         .run();
 }
 

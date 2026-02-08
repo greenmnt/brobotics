@@ -319,6 +319,66 @@ pub fn calculate_gyro_bias_from_sample(data_points: Vec<RawImuData>) -> GyroBias
 
 pub struct AccelBias {}
 
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct QuaternionData {
+    timestamp: f32,
+    pub q: Quaternion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Quaternion {
+    pub w: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+pub fn parse_quaternion_line(line: &str) -> Option<QuaternionData> {
+    let comps: Vec<f32> = line
+        .split(',')
+        .map(|s| s.trim().parse::<f32>().ok())
+        .collect::<Option<Vec<f32>>>()?;
+
+    if comps.len() != 5 {
+        return None;
+    }
+
+    Some(QuaternionData {
+        timestamp: comps[0],
+        q: Quaternion {
+            w: comps[1],
+            x: comps[2],
+            y: comps[3],
+            z: comps[4],
+        },
+    })
+}
+
+pub fn quaternion_to_euler(q: Quaternion) -> Orientation {
+    let (w, x, y, z) = (q.w, q.x, q.y, q.z);
+
+    // roll (x-axis rotation)
+    let sinr_cosp = 2.0 * (w * x + y * z);
+    let cosr_cosp = 1.0 - 2.0 * (x * x + y * y);
+    let roll = sinr_cosp.atan2(cosr_cosp);
+
+    // pitch (y-axis rotation)
+    let sinp = 2.0 * (w * y - z * x);
+    let pitch = if sinp.abs() >= 1.0 {
+        // use 90 degrees if out of range
+        sinp.signum() * std::f32::consts::FRAC_PI_2
+    } else {
+        sinp.asin()
+    };
+
+    // yaw (z-axis rotation)
+    let siny_cosp = 2.0 * (w * z + x * y);
+    let cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+    let yaw = siny_cosp.atan2(cosy_cosp);
+
+    Orientation { roll, pitch, yaw }
+}
+
 #[test]
 fn test_line_parse() {
     let line = "12:15:20.432: 15996,5528,3340,-233,-127,-110";
