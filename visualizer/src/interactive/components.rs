@@ -60,16 +60,16 @@ pub fn update_angle_text(
 ) {
     let data = imu.0.lock().unwrap();
 
-    let roll = data.roll.to_degrees();
     let pitch = data.pitch.to_degrees();
+    let roll = data.roll.to_degrees();
     let yaw = data.yaw.to_degrees();
 
     //println!("{:?} {:?} {:?}", pitch, roll, yaw);
 
     for mut text in &mut query {
         text.sections[0].value = format!(
-            "Roll:  {:.1}°\nPitch: {:.1}°\nYaw:   {:.1}°",
-            roll, pitch, yaw
+            "Pitch:  {:.1}°\nRoll: {:.1}°\nYaw:   {:.1}°",
+            pitch, roll, yaw
         );
     }
 }
@@ -80,7 +80,7 @@ pub fn update_plane_orientation(
 ) {
     let data = imu_data.0.lock().unwrap();
     for mut transform in query.iter_mut() {
-        transform.rotation = Quat::from_euler(EulerRot::XYZ, data.roll, data.pitch, data.yaw);
+        transform.rotation = Quat::from_euler(EulerRot::XYZ, data.pitch, data.roll, data.yaw);
         //transform.rotation = Quat::from_euler(EulerRot::XYZ, data.roll, data.pitch, 0.0);
     }
 }

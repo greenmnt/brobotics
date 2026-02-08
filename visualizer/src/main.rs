@@ -54,16 +54,17 @@ fn startup_thread_system(imu_data: Res<SharedOrientation>) {
 
         info!("calculating bias");
         let now = Instant::now();
+        //let gyro_bias = None;
         let gyro_bias = Some(calculate_gyro_bias_from_sample(bias_sample));
         info!(timer = now.elapsed().as_secs_f64(), "bias calculated");
         let accel_bias = None;
 
-        let mut filter = ImuFilter::new(TiltCalculationMethod::Complementary {
-            alpha: 0.98,
-            acceleration_method: TiltFromAccelerationMethod::TiltCompensatedRoll,
-        });
-        let mut prev_time: f32 = 0.0;
-
+        let mut filter = ImuFilter::new(TiltCalculationMethod::GyroOnly);
+        //let mut filter = ImuFilter::new(TiltCalculationMethod::Complementary {
+        //alpha: 0.98,
+        //acceleration_method: TiltFromAccelerationMethod::TiltCompensatedRoll,
+        //});
+        let mut prev_time: Option<f32> = None;
         let mut last_hash: u64 = 0;
 
         info!("reading lines");
@@ -82,16 +83,22 @@ fn startup_thread_system(imu_data: Res<SharedOrientation>) {
             if let Some(raw_imu) = parse_imu_line(&line) {
                 info!(line = ?line, raw_imu = ?raw_imu);
                 let ts = raw_imu.timestamp();
-                if prev_time > ts {
+                let _prev_time_log = prev_time;
+                let dt = match prev_time {
+                    Some(prev) => ts - prev,
+                    None => {
+                        prev_time = Some(ts);
+                        continue; // skip first sample
+                    }
+                };
+                prev_time = Some(ts);
+                if dt <= 0.0 {
                     eprintln!("prev_time >= current_timestamp {:?} {:?}", prev_time, ts);
                     continue;
                 }
-
-                let dt = ts - prev_time;
-                prev_time = ts;
-
                 let scaled =
                     clean_raw_readings(raw_imu, &gyro_bias, &accel_bias, gyro_sens, accel_sens);
+                info!(scaled_imu = ?scaled, ts = ?ts, prev_time = ?_prev_time_log, dt = ?dt, );
 
                 filter.update(scaled, dt);
 

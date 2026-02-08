@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ahrs = { version = "0.8", default-features = false }
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 heapless = "0.8"
@@ -14,6 +15,7 @@ rtt-target = "0.5"        # For log messages
 embedded-hal = { version = "0.2.7", features = ["unproven"] }
 embedded-time = "0.12.1"
 log = "0.4"
+nalgebra = { version = "0.34", default-features = false, features = ["libm-force"] }
 nb = "1.1"
 panic-halt = "0.2"
 panic-semihosting = "0.6.0"

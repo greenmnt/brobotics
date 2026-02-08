@@ -2,6 +2,7 @@
 #![no_std]
 #![no_main]
 
+//mod dmp_firmware;
 mod gps;
 mod gyro;
 mod uart_subscriber;
@@ -10,8 +11,10 @@ use gps::read_gps_line;
 use gyro::*;
 
 use crate::uart_subscriber::*;
+use ahrs::{Ahrs, Madgwick};
 use core::fmt::Write;
 use cortex_m_rt::entry;
+use nalgebra::Vector3;
 use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 //use defmt::*;
@@ -159,6 +162,80 @@ fn main() -> ! {
 }
 */
 
+//#[entry]
+//fn main() -> ! {
+//rtt_init_print!();
+//rprintln!("Starting MPU6050 Quaternion Example...");
+
+//let dp = pac::Peripherals::take().unwrap();
+//let mut flash = dp.FLASH.constrain();
+//let mut rcc = dp.RCC.constrain();
+
+//let clocks = rcc.cfgr.sysclk(8.MHz()).freeze(&mut flash.acr);
+
+//// ---- GPIO for I2C ----
+//let mut gpiob = dp.GPIOB.split(&mut rcc.ahb);
+
+//let scl = gpiob.pb6.into_af4_open_drain(&mut gpiob.moder, &mut gpiob.otyper, &mut gpiob.afrl);
+//let sda = gpiob.pb7.into_af4_open_drain(&mut gpiob.moder, &mut gpiob.otyper, &mut gpiob.afrl);
+
+//// ---- I2C ----
+//let mut i2c = I2c::new(
+//dp.I2C1,
+//(scl, sda),
+//embedded_time::rate::Hertz(400_000),
+//clocks,
+//&mut rcc.apb1,
+//);
+
+//// ---- Wake up IMU ----
+//loop {
+//match i2c.write(IMU_ADDR, &[PWR_MGMT_1, 0x00]) {
+//Ok(_) => break,
+//Err(stm32f3xx_hal::i2c::Error::Arbitration) => {
+//rprintln!("I2C Arbitration error, retrying...");
+//cortex_m::asm::delay(10_000);
+//}
+//Err(e) => panic!("I2C error: {:?}", e),
+//}
+//}
+
+//// ---- Timer for periodic reading ----
+//let mut timer = Timer::new(dp.TIM2, clocks, &mut rcc.apb1);
+//timer.start(10.milliseconds()); // 100 Hz, typical DMP rate
+
+//// ---- FIFO buffer for DMP ----
+//let mut fifo_buf = [0u8; 14];
+
+//loop {
+//nb::block!(timer.wait()).unwrap();
+
+//// Read one DMP FIFO packet
+//if i2c.write_read(IMU_ADDR, &[FIFO_R_W], &mut fifo_buf).is_err() {
+//rprintln!("FIFO read error");
+//continue;
+//}
+//rprintln!("{:?}", fifo_buf);
+
+//// Parse quaternion (Teapot format)
+////let mut q = [0.0f32; 4];
+////for i in 0..4 {
+////let hi = fifo_buf[2 + i * 2] as i16;
+////let lo = fifo_buf[3 + i * 2] as i16;
+////let val = ((hi as i16) << 8) | (lo as i16);
+////q[i] = val as f32 / 16384.0;
+////if q[i] >= 2.0 {
+////q[i] -= 4.0;
+////}
+////}
+
+////let (w, x, y, z) = (q[0], q[1], q[2], q[3]);
+////rprintln!("Quaternion: w={:.3}, x={:.3}, y={:.3}, z={:.3}", w, x, y, z);
+
+//cortex_m::asm::nop();
+//}
+//}
+
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
@@ -221,8 +298,14 @@ fn main() -> ! {
     assert!(gyro_fs_sel == 0);
     assert!(accel_fs_sel == 0);
 
+    let sample_rate_hz: u32 = 200;
+    let dt_ms: u32 = 1000 / sample_rate_hz;
+    let beta = 0.1;
+
+    let mut filter = Madgwick::new(sample_rate_hz as f32, beta);
+
     let mut timer = Timer::new(dp.TIM2, clocks, &mut rcc.apb1);
-    timer.start(100.milliseconds());
+    timer.start(dt_ms.milliseconds());
     loop {
         nb::block!(timer.wait()).unwrap();
         let mut buf = [0u8; 14];
@@ -235,7 +318,23 @@ fn main() -> ! {
         let gx = i16::from_be_bytes([buf[8], buf[9]]);
         let gy = i16::from_be_bytes([buf[10], buf[11]]);
         let gz = i16::from_be_bytes([buf[12], buf[13]]);
-        rprintln!("{},{},{},{},{},{}", ax, ay, az, gx, gy, gz);
+
+        let accel = Vector3::new(
+            ax as f32 / 16384.0,
+            ay as f32 / 16384.0,
+            az as f32 / 16384.0,
+        );
+
+        let gyro = Vector3::new(
+            (gx as f32 / 131.0) * core::f32::consts::PI / 180.0,
+            (gy as f32 / 131.0) * core::f32::consts::PI / 180.0,
+            (gz as f32 / 131.0) * core::f32::consts::PI / 180.0,
+        );
+
+        filter.update_imu(&gyro, &accel);
+        let q = filter.quat.quaternion();
+        rprintln!("q = [{:.3}, {:.3}, {:.3}, {:.3}]", q.w, q.i, q.j, q.k);
+        //rprintln!("{},{},{},{},{},{}", ax, ay, az, gx, gy, gz);
         cortex_m::asm::nop();
     }
 }

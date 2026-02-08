@@ -19,7 +19,7 @@ impl RawImuData {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ScaledImuData {
     ax: f32,
     ay: f32,
@@ -75,7 +75,7 @@ impl TiltFromAccelerationMethod {
                 let pitch = (-data.ax).atan2((data.ay * data.ay + data.az * data.az).sqrt());
                 let roll = (data.ay * pitch.cos() - data.ax * pitch.sin())
                     .atan2(data.az * pitch.cos() + data.ax * pitch.sin());
-                [roll, pitch, 0.0]
+                [pitch, roll, 0.0]
             }
         }
     }
@@ -121,6 +121,7 @@ impl ImuFilter {
             TiltCalculationMethod::GyroOnly => {
                 // integrate gyro
                 self._update_raw_gyro(&data, dt);
+                self.orientation = self.gyro_orientation;
             }
             TiltCalculationMethod::Complementary {
                 alpha,
@@ -275,6 +276,8 @@ pub fn collect_sample(
     num_samples: usize,
 ) -> Vec<RawImuData> {
     let mut sample = Vec::new();
+    let mut prev_time: f32 = 0.0;
+
     for (i, line_result) in reader.lines().take(num_samples).enumerate() {
         if i % 100 == 0 {
             tracing::info!(sample_num = i, total = num_samples);
