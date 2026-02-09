@@ -2524,6 +2524,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpu6050"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "embedded-hal",
+ "embedded-time",
+ "nb 1.1.0",
+ "panic-rtt-target",
+ "rtt-target",
+ "stm32f3xx-hal",
+]
+
+[[package]]
 name = "naga"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

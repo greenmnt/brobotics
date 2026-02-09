@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "mpu6050",
     "sensors",
     "visualizer"
 ]
