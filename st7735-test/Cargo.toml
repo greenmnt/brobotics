@@ -1,0 +1,15 @@
+[package]
+name = "st7735-test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7"
+embedded-hal = { version = "0.2.7", features = ["unproven"] }
+embedded-time = "0.12.1"
+embedded-graphics-core = "0.4"
+embedded-graphics = "0.8"
+panic-rtt-target = "0.1"
+rtt-target = "0.5"
+stm32f3xx-hal = { version = "0.10", features = ["stm32f334x8", "rt"] }

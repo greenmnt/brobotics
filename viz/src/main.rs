@@ -12,8 +12,9 @@ use kiss3d::camera::ArcBall;
 use kiss3d::event::{Action, Key, WindowEvent};
 use kiss3d::light::Light;
 use kiss3d::resource::Mesh;
+use kiss3d::text::Font;
 use kiss3d::window::Window;
-use nalgebra::{Point3, Quaternion, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{Point2, Point3, Quaternion, Translation3, UnitQuaternion, Vector3};
 use std::cell::RefCell;
 use std::io::{BufReader, BufRead};
 use std::rc::Rc;
@@ -99,6 +100,8 @@ fn main() {
     wings.set_color(0.0, 1.0, 0.0);
     wings.enable_backface_culling(false);
 
+    let font = Font::default();
+
     // Render loop
     while window.render_with_camera(&mut camera) {
         // Keyboard zoom: +/= to zoom in, - to zoom out
@@ -129,6 +132,27 @@ fn main() {
             let rotation = UnitQuaternion::from_quaternion(raw);
             group.set_local_rotation(rotation);
         }
+
+        // Compute yaw/pitch/roll from the raw DMP quaternion
+        // (same formulas as MPU6050_6Axis_MotionApps20.cpp)
+        let (w, x, y, z) = (q[0], q[1], q[2], q[3]);
+        let gx = 2.0 * (x * z - w * y);
+        let gy = 2.0 * (w * x + y * z);
+        let gz = w * w - x * x - y * y + z * z;
+
+        let yaw = (2.0 * x * y - 2.0 * w * z).atan2(2.0 * w * w + 2.0 * x * x - 1.0);
+        let pitch = gx.atan2((gy * gy + gz * gz).sqrt());
+        let roll = gy.atan2(gz);
+
+        let deg = 180.0 / std::f32::consts::PI;
+        let text = format!(
+            "Yaw:   {:+7.1}\nPitch: {:+7.1}\nRoll:  {:+7.1}",
+            yaw * deg,
+            pitch * deg,
+            roll * deg,
+        );
+        let white = Point3::new(1.0, 1.0, 1.0);
+        window.draw_text(&text, &Point2::new(10.0, 20.0), 48.0, &font, &white);
     }
 }
 

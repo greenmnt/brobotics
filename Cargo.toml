@@ -2,4 +2,6 @@
 members = [
     "viz",
     "mpu6050",
+    "st7735-test",
+    "imu-display",
 ]
