@@ -4,9 +4,9 @@
 mod dmp_firmware;
 mod st7735;
 
+use cortex_m::peripheral::DWT;
 use cortex_m_rt::entry;
 use dmp_firmware::DMP_FIRMWARE;
-use cortex_m::peripheral::DWT;
 use embedded_hal::blocking::i2c::{Write, WriteRead};
 use libm::{asinf, atan2f};
 use panic_rtt_target as _;
@@ -294,6 +294,11 @@ impl FmtWrite for LineBuf {
     }
 }
 
+fn equal_1dp(a: f32, b: f32) -> bool {
+    // If two numbers round to the same 1 decimal place, their difference is < 0.05
+    (a - b).abs() < 0.05
+}
+
 //  ── Main ───────────────────────────────────────────────────────────
 #[entry]
 fn main() -> ! {
@@ -301,14 +306,13 @@ fn main() -> ! {
     rprintln!("IMU Display starting...");
 
     let dp = pac::Peripherals::take().unwrap();
-    
+
     //for clock cycles
     let core_peripherals = cortex_m::Peripherals::take().unwrap();
     let mut dwt = core_peripherals.DWT;
     let mut dcb = core_peripherals.DCB;
     dcb.enable_trace();
     dwt.enable_cycle_counter();
-
 
     let mut flash = dp.FLASH.constrain();
     let mut rcc = dp.RCC.constrain();
@@ -384,7 +388,9 @@ fn main() -> ! {
     let _ = core::write!(&mut prev_pitch, "---.-");
     let _ = core::write!(&mut prev_roll, "---.-");
     let _ = core::write!(&mut prev_yaw, "---.-");
-
+    let mut prev_pitch_f32 = 0.0;
+    let mut prev_roll_f32 = 0.0;
+    let mut prev_yaw_f32 = 0.0;
     loop {
         // Read FIFO count
         let mut fifo_buf = [0u8; 2];
@@ -428,34 +434,40 @@ fn main() -> ! {
             //let (pitch, roll, yaw) = quat_to_euler(qw, qx, qy, qz);
             let (pitch, roll, yaw) = quat_to_angle(qw, qx, qy, qz);
 
-            // Format new values
-            let mut pitch_buf = LineBuf::new();
-            let mut roll_buf = LineBuf::new();
-            let mut yaw_buf = LineBuf::new();
-            let _ = core::write!(&mut pitch_buf, "{:.1}", pitch);
-            let _ = core::write!(&mut roll_buf, "{:.1}", roll);
-            let _ = core::write!(&mut yaw_buf, "{:.1}", yaw);
-
-            // Erase previous text by overwriting with black, then draw new
             let val_x = 4;
-            let _ = Text::new(prev_pitch.as_str(), Point::new(val_x, 50), black_style)
-                .draw(&mut display);
-            let _ = Text::new(pitch_buf.as_str(), Point::new(val_x, 50), value_style)
-                .draw(&mut display);
+            if !equal_1dp(pitch, prev_pitch_f32) {
+                let mut pitch_buf = LineBuf::new();
+                let _ = core::write!(&mut pitch_buf, "{:.1}", pitch);
+                let _ = Text::new(prev_pitch.as_str(), Point::new(val_x, 50), black_style)
+                    .draw(&mut display);
+                let _ = Text::new(pitch_buf.as_str(), Point::new(val_x, 50), value_style)
+                    .draw(&mut display);
+                prev_pitch_f32 = pitch;
+                prev_pitch = pitch_buf;
+            }
 
-            let _ = Text::new(prev_roll.as_str(), Point::new(val_x, 82), black_style)
-                .draw(&mut display);
-            let _ =
-                Text::new(roll_buf.as_str(), Point::new(val_x, 82), value_style).draw(&mut display);
+            if !equal_1dp(roll, prev_roll_f32) {
+                let mut roll_buf = LineBuf::new();
+                let _ = core::write!(&mut roll_buf, "{:.1}", roll);
+                let _ = Text::new(prev_roll.as_str(), Point::new(val_x, 82), black_style)
+                    .draw(&mut display);
+                let _ = Text::new(roll_buf.as_str(), Point::new(val_x, 82), value_style)
+                    .draw(&mut display);
+                prev_roll_f32 = roll;
+                prev_roll = roll_buf;
+            }
 
-            let _ = Text::new(prev_yaw.as_str(), Point::new(val_x, 114), black_style)
-                .draw(&mut display);
-            let _ =
-                Text::new(yaw_buf.as_str(), Point::new(val_x, 114), value_style).draw(&mut display);
+            if !equal_1dp(yaw, prev_yaw_f32) {
+                // Format new values
+                let mut yaw_buf = LineBuf::new();
+                let _ = core::write!(&mut yaw_buf, "{:.1}", yaw);
+                let _ = Text::new(prev_yaw.as_str(), Point::new(val_x, 114), black_style)
+                    .draw(&mut display);
+                let _ = Text::new(yaw_buf.as_str(), Point::new(val_x, 114), value_style)
+                    .draw(&mut display);
 
-            prev_pitch = pitch_buf;
-            prev_roll = roll_buf;
-            prev_yaw = yaw_buf;
+                prev_yaw = yaw_buf;
+            }
         }
 
         cortex_m::asm::delay(8_000 * 50); // ~50ms between updates

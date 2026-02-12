@@ -4,4 +4,6 @@ members = [
     "mpu6050",
     "st7735-test",
     "imu-display",
+    "body_km",
+    "body_viz",
 ]

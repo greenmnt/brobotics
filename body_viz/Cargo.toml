@@ -1,0 +1,9 @@
+[package]
+name = "body_viz"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+body_km = { path = "../body_km" }
+kiss3d = "0.35"
+nalgebra = "0.30"

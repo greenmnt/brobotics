@@ -1,0 +1,9 @@
+[package]
+name = "body_km"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nalgebra = "0.30"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
