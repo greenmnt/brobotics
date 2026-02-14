@@ -1,3 +1,6 @@
+/// DMP output packet size in bytes.
+pub const DMP_PACKET_SIZE: usize = 42;
+
 /// DMP firmware blob (1929 bytes) from InvenSense MotionApps v2.0
 /// Source: MPU6050_6Axis_MotionApps20.cpp dmpMemory[]
 /// This is proprietary black-box code — loaded as-is onto the MPU6050's DMP.

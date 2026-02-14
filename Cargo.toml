@@ -6,4 +6,9 @@ members = [
     "imu-display",
     "body_km",
     "body_viz",
+    "tca9548a",
+    "mpu6050_firmware",
 ]
+
+[workspace.dependencies]
+mpu6050_firmware = { path = "./mpu6050_firmware" }

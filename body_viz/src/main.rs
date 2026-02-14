@@ -19,11 +19,62 @@ struct SensorFrame {
 }
 
 // ---------------------------------------------------------------------------
-// CSV loader — format: timestamp,q0,q1,q2,q3  (q0 = w)
-// First frame is used as reference; all subsequent rotations are relative.
+// DMP-to-skeleton axis remap
+//
+// The DMP quaternion uses axes: X=left, Y=forward, Z=up
+// (derived from the viz crate's empirical OpenGL remap).
+// The skeleton uses:             X=forward, Y=left, Z=up
+// So we swap the x and y quaternion components.
+//
+// Supported remap strings (each char picks which DMP axis maps to that
+// skeleton axis, prefix '-' to negate):
+//   "yxz"  — swap x,y          (default, DMP→skeleton)
+//   "xyz"  — identity           (no remap)
+//   "xzy"  — swap y,z
+//   etc.
 // ---------------------------------------------------------------------------
 
-fn load_csv(path: &str) -> Vec<SensorFrame> {
+fn parse_remap(s: &str) -> [(f64, usize); 3] {
+    let mut result = [(1.0, 0); 3];
+    let mut chars = s.chars();
+    for slot in &mut result {
+        let c = chars.next().expect("remap string too short");
+        let (sign, axis_char) = if c == '-' {
+            (-1.0, chars.next().expect("remap string: missing axis after '-'"))
+        } else {
+            (1.0, c)
+        };
+        let idx = match axis_char {
+            'x' => 0,
+            'y' => 1,
+            'z' => 2,
+            _ => panic!("remap: invalid axis '{axis_char}', expected x/y/z"),
+        };
+        *slot = (sign, idx);
+    }
+    result
+}
+
+fn apply_remap(q: UnitQuaternion<f64>, remap: &[(f64, usize); 3]) -> UnitQuaternion<f64> {
+    let v = [q.i, q.j, q.k];
+    UnitQuaternion::from_quaternion(Quaternion::new(
+        q.w,
+        remap[0].0 * v[remap[0].1],
+        remap[1].0 * v[remap[1].1],
+        remap[2].0 * v[remap[2].1],
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// CSV loader — format: timestamp,q0,q1,q2,q3  (q0 = w)
+//
+// 1. Each DMP quaternion is remapped from DMP axes to skeleton axes.
+// 2. First frame = calibration reference (rest pose).
+// 3. Relative rotation uses RIGHT-division (q_now * q_cal⁻¹) so the result
+//    is in the skeleton world frame, not the sensor's local frame.
+// ---------------------------------------------------------------------------
+
+fn load_csv(path: &str, remap: &[(f64, usize); 3]) -> Vec<SensorFrame> {
     let data = std::fs::read_to_string(path).expect("Failed to read CSV file");
     let mut frames = Vec::new();
     let mut ref_quat: Option<UnitQuaternion<f64>> = None;
@@ -40,14 +91,19 @@ fn load_csv(path: &str) -> Vec<SensorFrame> {
         };
 
         let timestamp = vals[0];
-        let q = Quaternion::new(vals[1], vals[2], vals[3], vals[4]);
-        if q.norm_squared() < 1e-6 {
+        let raw = Quaternion::new(vals[1], vals[2], vals[3], vals[4]);
+        if raw.norm_squared() < 1e-6 {
             continue;
         }
-        let q = UnitQuaternion::from_quaternion(q);
 
+        // Remap DMP axes → skeleton axes
+        let q = apply_remap(UnitQuaternion::from_quaternion(raw), remap);
+
+        // Calibrate: first frame = rest reference
         let ref_q = *ref_quat.get_or_insert(q);
-        let relative = ref_q.inverse() * q;
+
+        // Right-division: relative rotation in world frame
+        let relative = q * ref_q.inverse();
 
         frames.push(SensorFrame {
             timestamp,
@@ -118,32 +174,62 @@ fn main() {
     let skel = Skeleton::from_json(skel_path).expect("Failed to load skeleton");
     println!("Loaded skeleton: {} joints", skel.joints.len());
 
-    // Parse arguments
-    let (sensor_joint, frames) = match args.len() {
-        1 => {
+    // Parse arguments: body_viz [joint data.csv|--demo] [--remap yxz]
+    let remap_str = args
+        .iter()
+        .position(|a| a == "--remap")
+        .map(|i| args.get(i + 1).expect("--remap requires a value").as_str())
+        .unwrap_or("yxz"); // default: swap x,y (DMP → skeleton)
+    let remap = parse_remap(remap_str);
+
+    // Filter out --remap and its value for positional arg parsing
+    let positional: Vec<&str> = {
+        let mut v = Vec::new();
+        let mut skip = false;
+        for (i, a) in args.iter().enumerate().skip(1) {
+            if skip {
+                skip = false;
+                continue;
+            }
+            if a == "--remap" {
+                skip = true;
+                continue;
+            }
+            let _ = i;
+            v.push(a.as_str());
+        }
+        v
+    };
+
+    let (sensor_joint, frames) = match positional.len() {
+        0 => {
             println!("Showing rest pose.");
-            println!("Usage: body_viz <joint_name> <data.csv>");
+            println!("Usage: body_viz <joint_name> <data.csv> [--remap yxz]");
             println!("       body_viz <joint_name> --demo");
             (None, vec![])
         }
-        3 => {
+        2 => {
             let idx = skel
-                .find_joint(&args[1])
-                .unwrap_or_else(|| panic!("Unknown joint '{}'. Available joints:", args[1]));
+                .find_joint(positional[0])
+                .unwrap_or_else(|| panic!("Unknown joint '{}'. Available joints:", positional[0]));
 
-            let frames = if args[2] == "--demo" {
-                println!("Demo mode: synthetic arm raise on '{}'", args[1]);
+            let frames = if positional[1] == "--demo" {
+                println!("Demo mode: synthetic arm raise on '{}'", positional[0]);
                 generate_demo_frames()
             } else {
-                let f = load_csv(&args[2]);
-                println!("Loaded {} frames for '{}'", f.len(), args[1]);
+                let f = load_csv(positional[1], &remap);
+                println!(
+                    "Loaded {} frames for '{}' (remap: {remap_str})",
+                    f.len(),
+                    positional[0]
+                );
                 f
             };
 
             (Some(idx), frames)
         }
         _ => {
-            eprintln!("Usage: body_viz [joint_name data.csv|--demo]");
+            eprintln!("Usage: body_viz [joint_name data.csv|--demo] [--remap yxz]");
             std::process::exit(1);
         }
     };
@@ -298,8 +384,9 @@ fn main() {
                 format!("Sensor: {} (no data)", skel.joints[ji].name)
             } else {
                 format!(
-                    "Sensor: {}\nFrame: {}/{}\nTime: {:.2}s{}",
+                    "Sensor: {}  remap: {}\nFrame: {}/{}\nTime: {:.2}s{}",
                     skel.joints[ji].name,
+                    remap_str,
                     frame_idx + 1,
                     frames.len(),
                     frames.get(frame_idx).map_or(0.0, |f| f.timestamp),

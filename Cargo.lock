@@ -1175,10 +1175,18 @@ dependencies = [
  "cortex-m-rt",
  "embedded-hal",
  "embedded-time",
+ "mpu6050_firmware",
  "nb 1.1.0",
  "panic-rtt-target",
  "rtt-target",
  "stm32f3xx-hal",
+]
+
+[[package]]
+name = "mpu6050_firmware"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
 ]
 
 [[package]]
@@ -1972,6 +1980,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tca9548a"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "embedded-hal",
+ "embedded-time",
+ "mpu6050_firmware",
+ "nb 1.1.0",
+ "panic-rtt-target",
+ "rtt-target",
+ "stm32f3xx-hal",
 ]
 
 [[package]]
