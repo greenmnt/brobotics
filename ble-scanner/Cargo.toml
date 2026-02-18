@@ -1,0 +1,9 @@
+[package]
+name = "ble-scanner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+btleplug = "0.11"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+uuid = "1"

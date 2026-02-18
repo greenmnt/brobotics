@@ -80,9 +80,6 @@ fn main() -> ! {
         &mut rcc.apb1,
     );
 
-    let detected = detect_connected_sensors(&mut i2c);
-    let num_connected = detected.iter().filter(|c| c.is_some()).count();
-    rprintln!("detected: {:?}", detected);
 
     // Scan the I2C bus to verify what devices are present.
     // Use a 1-byte read probe — empty writes may not work on STM32F3 I2C v2.
@@ -96,7 +93,11 @@ fn main() -> ! {
         }
     }
     rprintln!("Scan done, {} device(s) found.", found);
-    if found == 0 {
+
+    let detected = detect_connected_sensors(&mut i2c);
+    let num_connected = detected.iter().filter(|c| c.is_some()).count();
+    rprintln!("detected: {:?}", detected);
+    if num_connected == 0 {
         panic!["no devices found"];
     }
 

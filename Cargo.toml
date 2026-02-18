@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     "viz",
     "mpu6050",
@@ -8,6 +9,8 @@ members = [
     "body_viz",
     "tca9548a",
     "mpu6050_firmware",
+    "xiao-nrf52840", "xiao-blink-test",
+    "ble-scanner",
 ]
 
 [workspace.dependencies]
