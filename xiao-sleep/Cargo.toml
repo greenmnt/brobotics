@@ -1,5 +1,5 @@
 [package]
-name = "xiao-nrf52840"
+name = "xiao-sleep"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,8 +8,6 @@ cortex-m = "0.7"
 cortex-m-rt = "0.7"
 panic-halt = "1.0"
 nrf52840-hal = { version = "0.19.0", features = ["rt"] }
-embedded-hal = "0.2.7"
-mpu6050_firmware = { path = "../mpu6050_firmware" }
 
 [profile.release]
 opt-level = "s"

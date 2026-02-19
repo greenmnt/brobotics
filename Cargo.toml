@@ -11,6 +11,9 @@ members = [
     "mpu6050_firmware",
     "xiao-nrf52840", "xiao-blink-test",
     "ble-scanner",
+    "ble-scan",
+    "xiao-sleep",
+    "xtask",
 ]
 
 [workspace.dependencies]

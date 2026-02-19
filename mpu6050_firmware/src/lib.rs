@@ -311,7 +311,8 @@ impl Mpu6050 {
         self.upload_dmp_firmware(i2c)?;
 
         // 16. Write FIFO rate divisor to DMP memory: bank 0x02, offset 0x16
-        self.write_dmp_memory(i2c, 0x02, 0x16, &[0x00, 0x01])?;
+        //     [0x00, 0x00] = every sample = 200 Hz
+        self.write_dmp_memory(i2c, 0x02, 0x16, &[0x00, 0x00])?;
 
         // 17. Set DMP config registers
         self.write_reg(i2c, REG_DMP_CFG_1, 0x03)?;

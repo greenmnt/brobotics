@@ -114,6 +114,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
 
 [[package]]
+name = "ble-scan"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "ble-scanner"
 version = "0.1.0"
 dependencies = [
@@ -3323,6 +3330,17 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "embedded-hal 0.2.7",
+ "mpu6050_firmware",
+ "nrf52840-hal",
+ "panic-halt",
+]
+
+[[package]]
+name = "xiao-sleep"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
  "nrf52840-hal",
  "panic-halt",
 ]
@@ -3338,6 +3356,10 @@ name = "xml-rs"
 version = "0.8.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
+
+[[package]]
+name = "xtask"
+version = "0.1.0"
 
 [[package]]
 name = "zerocopy"

@@ -1,0 +1,4 @@
+[alias]
+xtask = "run --package xtask --"
+xiao-sleep = ["run", "--package", "xtask", "--", "flash", "xiao-sleep"]
+xiao-flash = ["run", "--package", "xtask", "--", "flash", "xiao-nrf52840"]
