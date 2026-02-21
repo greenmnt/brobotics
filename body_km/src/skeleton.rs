@@ -195,6 +195,17 @@ impl Skeleton {
     /// Use `UnitQuaternion::identity()` for joints without sensor input.
     /// Returns one `Point3` per joint in world coordinates.
     pub fn forward_kinematics(&self, local_rotations: &[UnitQuaternion<f64>]) -> Vec<Point3<f64>> {
+        self.forward_kinematics_full(local_rotations).0
+    }
+
+    /// Compute world-space positions and world rotations via forward kinematics.
+    ///
+    /// Same as `forward_kinematics` but also returns the accumulated world
+    /// rotation per joint (useful for drawing orientation axes and paddle bones).
+    pub fn forward_kinematics_full(
+        &self,
+        local_rotations: &[UnitQuaternion<f64>],
+    ) -> (Vec<Point3<f64>>, Vec<UnitQuaternion<f64>>) {
         assert_eq!(local_rotations.len(), self.joints.len());
 
         let mut positions = vec![Point3::origin(); self.joints.len()];
@@ -215,7 +226,7 @@ impl Skeleton {
             }
         }
 
-        positions
+        (positions, world_rots)
     }
 
     /// Print the skeleton as an indented tree.

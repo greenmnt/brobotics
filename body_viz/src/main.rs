@@ -267,54 +267,125 @@ fn draw_skeleton_at(
     window: &mut Window,
     skel: &Skeleton,
     positions: &[Point3<f64>],
+    world_rots: &[UnitQuaternion<f64>],
     joint_to_track: &[Option<usize>],
     project: fn(&Point3<f64>) -> Point3<f32>,
     offset: &Point3<f32>,
     scale: f32,
 ) {
+    let apply = |p: Point3<f32>| -> Point3<f32> {
+        Point3::new(
+            p.x * scale + offset.x,
+            p.y * scale + offset.y,
+            p.z * scale + offset.z,
+        )
+    };
+
     let bone_color = Point3::new(0.85f32, 0.85, 0.85);
+    let paddle_width = 0.02; // skeleton units
+
+    // --- Octahedral bones (cross-shaped cross-section, visible from all views) ---
     for (i, joint) in skel.joints.iter().enumerate() {
         if let Some(pi) = joint.parent {
             let color = match joint_to_track[i] {
                 Some(ti) => sensor_color(ti),
                 None => bone_color,
             };
-            let a = project(&positions[pi]);
-            let b = project(&positions[i]);
-            window.draw_line(
-                &Point3::new(a.x * scale + offset.x, a.y * scale + offset.y, a.z * scale + offset.z),
-                &Point3::new(b.x * scale + offset.x, b.y * scale + offset.y, b.z * scale + offset.z),
-                &color,
-            );
+
+            let pa = &positions[pi];
+            let pb = &positions[i];
+            let bone_vec = pb - pa;
+            let bone_len = bone_vec.norm();
+
+            if bone_len > 1e-6 {
+                let bone_dir = bone_vec / bone_len;
+
+                // Two perpendicular directions from parent's world rotation
+                let fwd = world_rots[pi].transform_vector(&Vector3::new(1.0, 0.0, 0.0));
+                let up = world_rots[pi].transform_vector(&Vector3::new(0.0, 0.0, 1.0));
+
+                // Project both perpendicular to bone
+                let p1 = fwd - bone_dir * fwd.dot(&bone_dir);
+                let p2 = up - bone_dir * up.dot(&bone_dir);
+
+                let mid = Point3::new(
+                    (pa.x + pb.x) * 0.5,
+                    (pa.y + pb.y) * 0.5,
+                    (pa.z + pb.z) * 0.5,
+                );
+                let da = apply(project(pa));
+                let db = apply(project(pb));
+
+                // Draw diamond for each perpendicular that has sufficient length
+                for perp in [&p1, &p2] {
+                    let plen = perp.norm();
+                    if plen > 1e-6 {
+                        let p = perp * (paddle_width / plen);
+                        let ml = Point3::new(mid.x + p.x, mid.y + p.y, mid.z + p.z);
+                        let mr = Point3::new(mid.x - p.x, mid.y - p.y, mid.z - p.z);
+                        let dl = apply(project(&ml));
+                        let dr = apply(project(&mr));
+
+                        window.draw_line(&da, &dl, &color);
+                        window.draw_line(&dl, &db, &color);
+                        window.draw_line(&da, &dr, &color);
+                        window.draw_line(&dr, &db, &color);
+                    }
+                }
+
+                // If both perps were degenerate, fall back to a line
+                if p1.norm() < 1e-6 && p2.norm() < 1e-6 {
+                    window.draw_line(&da, &db, &color);
+                }
+            }
         }
     }
 
-    let ms = 0.012f32 * scale;
-    let joint_color = Point3::new(1.0f32, 1.0, 1.0);
+    // --- Orientation axes at sensor joints ---
+    let axis_len = 0.04; // skeleton units
+    let red = Point3::new(1.0f32, 0.2, 0.2);
+    let green = Point3::new(0.2f32, 1.0, 0.2);
+    let blue = Point3::new(0.3f32, 0.3, 1.0);
+
     for (i, pos) in positions.iter().enumerate() {
-        let p = project(pos);
-        let px = p.x * scale + offset.x;
-        let py = p.y * scale + offset.y;
-        let pz = p.z * scale + offset.z;
-        let c = match joint_to_track[i] {
-            Some(ti) => sensor_color(ti),
-            None => joint_color,
-        };
-        window.draw_line(
-            &Point3::new(px - ms, py, pz),
-            &Point3::new(px + ms, py, pz),
-            &c,
-        );
-        window.draw_line(
-            &Point3::new(px, py - ms, pz),
-            &Point3::new(px, py + ms, pz),
-            &c,
-        );
-        window.draw_line(
-            &Point3::new(px, py, pz - ms),
-            &Point3::new(px, py, pz + ms),
-            &c,
-        );
+        if joint_to_track[i].is_some() {
+            let rot = &world_rots[i];
+            let ax = rot.transform_vector(&Vector3::new(axis_len, 0.0, 0.0));
+            let ay = rot.transform_vector(&Vector3::new(0.0, axis_len, 0.0));
+            let az = rot.transform_vector(&Vector3::new(0.0, 0.0, axis_len));
+
+            let tip_x = Point3::new(pos.x + ax.x, pos.y + ax.y, pos.z + ax.z);
+            let tip_y = Point3::new(pos.x + ay.x, pos.y + ay.y, pos.z + ay.z);
+            let tip_z = Point3::new(pos.x + az.x, pos.y + az.y, pos.z + az.z);
+
+            let p0 = apply(project(pos));
+            let px = apply(project(&tip_x));
+            let py = apply(project(&tip_y));
+            let pz = apply(project(&tip_z));
+
+            window.draw_line(&p0, &px, &red);
+            window.draw_line(&p0, &py, &green);
+            window.draw_line(&p0, &pz, &blue);
+        }
+    }
+
+    // --- Small markers at non-sensor joints ---
+    let ms = 0.006f32 * scale;
+    let joint_color = Point3::new(0.6f32, 0.6, 0.6);
+    for (i, pos) in positions.iter().enumerate() {
+        if joint_to_track[i].is_none() {
+            let p = apply(project(pos));
+            window.draw_line(
+                &Point3::new(p.x - ms, p.y, p.z),
+                &Point3::new(p.x + ms, p.y, p.z),
+                &joint_color,
+            );
+            window.draw_line(
+                &Point3::new(p.x, p.y - ms, p.z),
+                &Point3::new(p.x, p.y + ms, p.z),
+                &joint_color,
+            );
+        }
     }
 }
 
@@ -323,6 +394,7 @@ fn draw_all_views(
     window: &mut Window,
     skel: &Skeleton,
     positions: &[Point3<f64>],
+    world_rots: &[UnitQuaternion<f64>],
     joint_to_track: &[Option<usize>],
     font: &std::rc::Rc<Font>,
 ) {
@@ -335,9 +407,9 @@ fn draw_all_views(
     draw_ground_grid_at(window, &side_off, s);
     draw_ground_grid_at(window, &top_off, s);
 
-    draw_skeleton_at(window, skel, positions, joint_to_track, to_display_front, &front_off, s);
-    draw_skeleton_at(window, skel, positions, joint_to_track, to_display_side, &side_off, s);
-    draw_skeleton_at(window, skel, positions, joint_to_track, to_display_top, &top_off, s);
+    draw_skeleton_at(window, skel, positions, world_rots, joint_to_track, to_display_front, &front_off, s);
+    draw_skeleton_at(window, skel, positions, world_rots, joint_to_track, to_display_side, &side_off, s);
+    draw_skeleton_at(window, skel, positions, world_rots, joint_to_track, to_display_top, &top_off, s);
 
     let label_color = Point3::new(0.5f32, 0.5, 0.5);
     window.draw_text("FRONT", &Point2::new(340.0, 580.0), 30.0, font, &label_color);
@@ -381,45 +453,21 @@ fn finalize_quat(accum: &[f64; 4]) -> UnitQuaternion<f64> {
     }
 }
 
-/// Compute the expected skeleton rotation at `joint_idx` for T-pose.
+/// Compute the expected bone direction in T-pose for a sensor joint.
 ///
-/// The skeleton rest pose is N-pose (arms at sides). For arm joints whose
-/// outgoing bone points downward, T-pose requires rotating that bone to
-/// horizontal (lateral). This is derived from the skeleton geometry:
-///   - Outgoing bone direction (to first child) is the rest direction
-///   - T-pose direction is lateral (±Y based on which side of the body)
-///   - Only applies if incoming bone (from parent) is NOT also downward
-///     (i.e. this is the root of the arm chain, not a child like elbow)
-fn compute_tpose_rotation(skel: &Skeleton, joint_idx: usize) -> UnitQuaternion<f64> {
+/// For arm joints (outgoing bone points down in rest, joint is laterally
+/// offset and above pelvis), the T-pose bone direction is lateral (±Y).
+/// Returns None for non-arm joints or joints without children.
+fn tpose_bone_direction(skel: &Skeleton, joint_idx: usize) -> Option<Vector3<f64>> {
     let joint = &skel.joints[joint_idx];
-
-    // Find first child to get outgoing bone direction
-    let child_idx = skel.joints.iter().position(|j| j.parent == Some(joint_idx));
-    let child_idx = match child_idx {
-        Some(i) => i,
-        None => return UnitQuaternion::identity(),
-    };
-
+    let child_idx = skel.joints.iter().position(|j| j.parent == Some(joint_idx))?;
     let child_offset = skel.joints[child_idx].position - joint.position;
 
-    // Check if incoming bone from parent is also downward (child joint, not chain root)
-    let incoming_is_down = if let Some(pi) = joint.parent {
-        let incoming = joint.position - skel.joints[pi].position;
-        incoming.z.abs() > incoming.y.abs() && incoming.z < -0.05
-    } else {
-        false
-    };
-
-    // Apply correction only for chain-root arm joints:
-    //   outgoing bone points down, incoming does NOT, joint is laterally offset and above pelvis
-    if child_offset.z < -0.1 && !incoming_is_down && joint.position.y.abs() > 0.1 && joint.position.z > 0.2 {
-        let rest_dir = child_offset.normalize();
+    if child_offset.z < -0.1 && joint.position.y.abs() > 0.1 && joint.position.z > 0.2 {
         let lateral_sign = if joint.position.y < 0.0 { -1.0 } else { 1.0 };
-        let tpose_dir = Vector3::new(0.0, lateral_sign, 0.0);
-        UnitQuaternion::rotation_between(&rest_dir, &tpose_dir)
-            .unwrap_or(UnitQuaternion::identity())
+        Some(Vector3::new(0.0, lateral_sign, 0.0))
     } else {
-        UnitQuaternion::identity()
+        None
     }
 }
 
@@ -514,22 +562,18 @@ fn run_live(
     let mut corrections: Vec<UnitQuaternion<f64>> =
         vec![UnitQuaternion::identity(); n_channels];
 
-    // Expected skeleton T-pose rotation per channel (from skeleton geometry)
-    let skel_tpose: Vec<UnitQuaternion<f64>> = joint_indices
+    // Expected bone direction in T-pose per channel (from skeleton geometry)
+    let tpose_dirs: Vec<Option<Vector3<f64>>> = joint_indices
         .iter()
-        .map(|&ji| compute_tpose_rotation(skel, ji))
+        .map(|&ji| tpose_bone_direction(skel, ji))
         .collect();
     for (ti, &ji) in joint_indices.iter().enumerate() {
-        let q = &skel_tpose[ti];
-        if let Some((axis, angle)) = q.axis_angle() {
-            eprintln!(
-                "  {} T-pose rotation: {:.1}° around [{:.2}, {:.2}, {:.2}]",
-                skel.joints[ji].name,
-                angle.to_degrees(),
-                axis.x, axis.y, axis.z,
-            );
-        } else {
-            eprintln!("  {} T-pose rotation: identity", skel.joints[ji].name);
+        match &tpose_dirs[ti] {
+            Some(d) => eprintln!(
+                "  {} T-pose bone dir: [{:.2}, {:.2}, {:.2}]",
+                skel.joints[ji].name, d.x, d.y, d.z,
+            ),
+            None => eprintln!("  {} no T-pose correction (non-arm)", skel.joints[ji].name),
         }
     }
 
@@ -629,37 +673,56 @@ fn run_live(
                         ref_npose[ch] = finalize_quat(&cal_accum[ch]);
                     }
 
-                    // Compute per-channel axis correction from T/N calibration.
+                    // Compute per-channel yaw-only correction from T/N calibration.
                     //
-                    // sensor_delta = sensor T-pose relative to N-pose
-                    // skel_tpose   = expected skeleton rotation in T-pose
+                    // Both the DMP and skeleton share Z = up (gravity-aligned).
+                    // The only mismatch is horizontal heading (DMP heading is
+                    // arbitrary at startup and differs per sensor).
                     //
-                    // We need `correction` such that:
-                    //   correction * sensor_delta * correction.inverse() ≈ skel_tpose
-                    //
-                    // Both represent the same physical rotation (~90° for shoulders)
-                    // but in different coordinate frames. Aligning their rotation axes
-                    // via `rotation_between` gives us the frame correction.
+                    // Method: rotate the N-pose bone direction (-Z = down) by the
+                    // sensor's T-N delta to find where the bone points in T-pose
+                    // in the DMP frame. Then align that (horizontal) direction
+                    // with the expected skeleton T-pose bone direction via yaw.
+                    // This uses bone DIRECTIONS (robust) instead of rotation
+                    // axes (fragile with axis_angle extraction).
                     for ch in 0..n_channels {
                         let sensor_delta = ref_tpose[ch] * ref_npose[ch].inverse();
-                        let skel_t = &skel_tpose[ch];
 
-                        corrections[ch] = match (sensor_delta.axis_angle(), skel_t.axis_angle()) {
-                            (Some((s_axis, _)), Some((k_axis, _))) => {
-                                let c = UnitQuaternion::rotation_between(
-                                    s_axis.as_ref(),
-                                    k_axis.as_ref(),
-                                ).unwrap_or(UnitQuaternion::identity());
-                                eprintln!(
-                                    "  ch{} ({}) axis correction: {:.1}°",
-                                    ch, skel.joints[joint_indices[ch]].name,
-                                    c.angle().to_degrees(),
+                        corrections[ch] = match &tpose_dirs[ch] {
+                            Some(tpose_dir) => {
+                                // Where does the bone point in T-pose, in DMP frame?
+                                // In N-pose bone points down (-Z), rotate by sensor delta.
+                                let bone_dmp = sensor_delta.transform_vector(
+                                    &Vector3::new(0.0, 0.0, -1.0),
                                 );
-                                c
+
+                                // Project both to horizontal for pure yaw correction
+                                let bone_h = Vector3::new(bone_dmp.x, bone_dmp.y, 0.0);
+                                let tpose_h = Vector3::new(tpose_dir.x, tpose_dir.y, 0.0);
+
+                                if bone_h.norm() > 1e-3 && tpose_h.norm() > 1e-3 {
+                                    let c = UnitQuaternion::rotation_between(
+                                        &bone_h,
+                                        &tpose_h,
+                                    ).unwrap_or(UnitQuaternion::identity());
+                                    eprintln!(
+                                        "  ch{} ({}) bone_dmp=[{:.2},{:.2},{:.2}] yaw={:.1}°",
+                                        ch, skel.joints[joint_indices[ch]].name,
+                                        bone_dmp.x, bone_dmp.y, bone_dmp.z,
+                                        c.angle().to_degrees(),
+                                    );
+                                    c
+                                } else {
+                                    eprintln!(
+                                        "  ch{} ({}) bone near-vertical in T-pose, no yaw correction",
+                                        ch, skel.joints[joint_indices[ch]].name,
+                                    );
+                                    UnitQuaternion::identity()
+                                }
                             }
-                            _ => {
+                            None => {
                                 eprintln!(
-                                    "  ch{} ({}) no axis correction (identity T-pose)",
+                                    "  ch{} ({}) non-arm joint, no correction",
                                     ch, skel.joints[joint_indices[ch]].name,
                                 );
                                 UnitQuaternion::identity()
@@ -692,17 +755,49 @@ fn run_live(
         }
 
         // --- Build per-joint rotations ---
+        //
+        // Each sensor gives a *world* rotation (relative to N-pose).
+        // FK propagates parent rotations to children, so if we naively
+        // set both ShoulderRight and ElbowRight to world rotations,
+        // the shoulder rotation gets applied twice to the forearm.
+        //
+        // Fix: for each sensor whose ancestor is also a sensor, compute
+        // the *local* rotation by removing the parent sensor's world rotation:
+        //   local = parent_world.inverse() * child_world
         let n = skel.joints.len();
         let mut rotations = vec![UnitQuaternion::identity(); n];
         if let State::Live = state {
             for (ti, &ji) in joint_indices.iter().enumerate() {
-                rotations[ji] = latest[ti];
+                // Walk up the skeleton tree to find nearest ancestor that is a sensor
+                let parent_sensor_ch = {
+                    let mut ancestor = skel.joints[ji].parent;
+                    let mut found = None;
+                    while let Some(pi) = ancestor {
+                        if let Some(pos) = joint_indices.iter().position(|&idx| idx == pi) {
+                            found = Some(pos);
+                            break;
+                        }
+                        ancestor = skel.joints[pi].parent;
+                    }
+                    found
+                };
+
+                rotations[ji] = match parent_sensor_ch {
+                    Some(parent_ch) => {
+                        // Local: remove parent sensor's world rotation
+                        latest[parent_ch].inverse() * latest[ti]
+                    }
+                    None => {
+                        // Chain root: world rotation IS the local rotation
+                        latest[ti]
+                    }
+                };
             }
         }
 
         // --- Forward kinematics + draw ---
-        let positions = skel.forward_kinematics(&rotations);
-        draw_all_views(&mut window, skel, &positions, &joint_to_track, &font);
+        let (positions, world_rots) = skel.forward_kinematics_full(&rotations);
+        draw_all_views(&mut window, skel, &positions, &world_rots, &joint_to_track, &font);
 
         // --- HUD ---
         let white = Point3::new(1.0f32, 1.0, 1.0);
@@ -1038,10 +1133,10 @@ fn main() {
         }
 
         // --- Forward kinematics ---
-        let positions = skel.forward_kinematics(&rotations);
+        let (positions, world_rots) = skel.forward_kinematics_full(&rotations);
 
         // --- Draw ---
-        draw_all_views(&mut window, &skel, &positions, &joint_to_track, &font);
+        draw_all_views(&mut window, &skel, &positions, &world_rots, &joint_to_track, &font);
 
         // --- HUD ---
         let white = Point3::new(1.0f32, 1.0, 1.0);
