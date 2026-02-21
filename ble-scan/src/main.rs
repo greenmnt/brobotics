@@ -5,8 +5,11 @@
 //! BlueZ automatically reclaims the adapter when the scanner exits.
 //!
 //! Usage:
-//!   sudo ./target/debug/ble-scan              # 5-column: timestamp,w,x,y,z
+//!   sudo ./target/debug/ble-scan              # 5-column from any XIAO
+//!   sudo ./target/debug/ble-scan --addr AA:BB:CC:DD:EE:FF    # 5-column from one sensor only
 //!   sudo ./target/debug/ble-scan --multi      # 6-column: channel,timestamp,w,x,y,z
+//!   sudo ./target/debug/ble-scan --multi --addr AA:BB:.. --addr 11:22:..
+//!                                             # 6-column, pin channel 0/1 to addresses
 //!
 //! Requires CAP_NET_ADMIN (run with sudo, or use setcap).
 
@@ -262,10 +265,56 @@ fn decode_mfr_quaternion(ad: &[u8]) -> Option<(u32, f32, f32, f32, f32)> {
     Some((ts, w, x, y, z))
 }
 
+/// Parse "AA:BB:CC:DD:EE:FF" → [u8; 6] in HCI byte order (reversed).
+fn parse_addr(s: &str) -> Option<[u8; 6]> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 6 {
+        return None;
+    }
+    let mut addr = [0u8; 6];
+    for (i, p) in parts.iter().enumerate() {
+        addr[5 - i] = u8::from_str_radix(p, 16).ok()?;
+    }
+    Some(addr)
+}
+
 // ---- Main ----
 
 fn main() {
-    let multi = std::env::args().any(|a| a == "--multi");
+    let args: Vec<String> = std::env::args().collect();
+    let multi = args.iter().any(|a| a == "--multi");
+
+    // Parse --addr arguments: each specifies a BLE address in channel order
+    // e.g. --addr AA:BB:CC:DD:EE:FF --addr 11:22:33:44:55:66
+    //       → channel 0 = AA:BB:..., channel 1 = 11:22:...
+    let mut pinned_addrs: Vec<[u8; 6]> = Vec::new();
+    {
+        let mut i = 1;
+        while i < args.len() {
+            if args[i] == "--addr" {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("--addr requires a value (AA:BB:CC:DD:EE:FF)");
+                    process::exit(1);
+                }
+                match parse_addr(&args[i]) {
+                    Some(a) => {
+                        eprintln!(
+                            "pinned channel {} = {}",
+                            pinned_addrs.len(),
+                            args[i].to_uppercase()
+                        );
+                        pinned_addrs.push(a);
+                    }
+                    None => {
+                        eprintln!("invalid BLE address: {}", args[i]);
+                        process::exit(1);
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
 
     // Install SIGINT handler without SA_RESTART so read() returns EINTR
     unsafe {
@@ -307,7 +356,12 @@ fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let mut sensors: HashMap<[u8; 6], u8> = HashMap::new();
-    let mut next_ch: u8 = 0;
+    // Pre-populate pinned address→channel mappings
+    for (ch, &a) in pinned_addrs.iter().enumerate() {
+        sensors.insert(a, ch as u8);
+    }
+    let mut next_ch: u8 = pinned_addrs.len() as u8;
+    let mut seen: std::collections::HashSet<[u8; 6]> = std::collections::HashSet::new();
     let mut count: u64 = 0;
     let mut buf = [0u8; 512];
 
@@ -356,15 +410,24 @@ fn main() {
                 continue;
             }
             if let Some((ts, w, x, y, z)) = decode_mfr_quaternion(ad) {
+                // Single mode with pinned addr: only output that sensor
+                if !multi && !pinned_addrs.is_empty() && !pinned_addrs.contains(&addr) {
+                    continue;
+                }
+
                 let ch = *sensors.entry(addr).or_insert_with(|| {
                     let c = next_ch;
                     next_ch += 1;
-                    eprintln!(
-                        "sensor {} = {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                        c, addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]
-                    );
                     c
                 });
+                if seen.insert(addr) {
+                    let pinned = pinned_addrs.iter().any(|a| *a == addr);
+                    eprintln!(
+                        "sensor {} = {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}{}",
+                        ch, addr[5], addr[4], addr[3], addr[2], addr[1], addr[0],
+                        if pinned { " (pinned)" } else { "" }
+                    );
+                }
 
                 if multi {
                     let _ =

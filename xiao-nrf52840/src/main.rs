@@ -22,7 +22,20 @@ const BLE_ADV_CHANNELS: [(u8, u32); 3] = [
 /// Manufacturer data layout: [timestamp_u32_BE, w_i16_BE, x_i16_BE, y_i16_BE, z_i16_BE]
 /// Returns (total_length, mfr_data_offset) where offset points to the timestamp byte.
 fn build_adv_packet(buf: &mut [u8; 64]) -> (usize, usize) {
-    let addr: [u8; 6] = [0x12, 0x34, 0x56, 0x78, 0x9A, 0xDE];
+    // Read unique device address from factory FICR registers
+    let ficr = unsafe { &*nrf52840_hal::pac::FICR::ptr() };
+    let a0 = ficr.deviceaddr[0].read().bits();
+    let a1 = ficr.deviceaddr[1].read().bits();
+    let mut addr = [
+        (a0 & 0xFF) as u8,
+        ((a0 >> 8) & 0xFF) as u8,
+        ((a0 >> 16) & 0xFF) as u8,
+        ((a0 >> 24) & 0xFF) as u8,
+        (a1 & 0xFF) as u8,
+        ((a1 >> 8) & 0xFF) as u8,
+    ];
+    // Set two MSBs of the top byte to mark as random static address (BLE requirement)
+    addr[5] |= 0xC0;
     let name = b"XIAO-Rust";
 
     let mut i = 0;
@@ -221,6 +234,19 @@ fn main() -> ! {
                 blink(&mut led_red, &mut timer, 1, 500, 500);
             }
         }
+    }
+    timer.delay_ms(500u32);
+
+    // ===== Post-DMP: 3x WHITE =====
+    for _ in 0..3 {
+        led_red.set_low().unwrap();
+        led_green.set_low().unwrap();
+        led_blue.set_low().unwrap();
+        timer.delay_ms(300u32);
+        led_red.set_high().unwrap();
+        led_green.set_high().unwrap();
+        led_blue.set_high().unwrap();
+        timer.delay_ms(300u32);
     }
     timer.delay_ms(500u32);
 
